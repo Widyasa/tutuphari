@@ -1,5 +1,5 @@
 import type { CloseResult, WhatIf } from "@/lib/calculator";
-import { formatRupiah } from "@/lib/rupiah";
+import { AMOUNT_TOKEN_SOURCE, formatRupiah, parseAmountToken } from "@/lib/rupiah";
 import { TYPE_LABEL, type Entry } from "@/lib/types";
 
 function gapPhrase(selisih: number): string {
@@ -57,12 +57,16 @@ export function explainClose(result: CloseResult): string {
   return sentences.join(" ");
 }
 
-export function allowedExplainAmounts(result: CloseResult): number[] {
+export function allowedExplainAmounts(
+  result: CloseResult,
+  entries: { amount: number | null }[] = [],
+): number[] {
   const values = [
     result.modalAwal,
     result.penjualanTunai,
     result.penjualanQris,
     result.penjualanTransfer,
+    result.penjualanTunai + result.penjualanQris + result.penjualanTransfer,
     result.pengeluaranTunai,
     result.ambilPribadiTunai,
     result.kasbonKeluarTunai,
@@ -76,6 +80,9 @@ export function allowedExplainAmounts(result: CloseResult): number[] {
     result.qrisSelisih == null ? 0 : Math.abs(result.qrisSelisih),
     0,
   ];
+  for (const entry of entries) {
+    if (entry.amount != null) values.push(entry.amount);
+  }
   for (const item of result.whatIfs) {
     values.push(item.amount, Math.abs(item.asTunaiSelisih), Math.abs(item.asQrisSelisih));
   }
@@ -102,12 +109,22 @@ export function explanationContradictsEntries(
   text: string,
   entries: MethodCheckEntry[],
 ): boolean {
-  const sentences = text.split(/(?<=[.!?])\s+/);
-  for (const sentence of sentences) {
-    const asserted = assertedMethods(sentence);
+  const parts = text
+    .split(/(?<=[.!?])\s+|\s*(?:,|;)\s+|\s+\bdan\b\s+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  for (const part of parts) {
+    const asserted = assertedMethods(part);
     if (asserted.length === 0) continue;
-    for (const entry of entries) {
-      if (!sentenceRefersTo(sentence, entry)) continue;
+    const referred = entries.filter((entry) => sentenceRefersTo(part, entry));
+    if (referred.length === 1) {
+      const entry = referred[0];
+      if (asserted.some((method) => method !== entry.method)) return true;
+      continue;
+    }
+    for (const entry of referred) {
+      const source = entry.sourceText.trim().toLowerCase();
+      if (source.length < 4 || !part.toLowerCase().includes(source)) continue;
       if (asserted.some((method) => method !== entry.method)) return true;
     }
   }
@@ -199,10 +216,17 @@ export function matchesExplainSchema(data: unknown): data is { explanation: stri
 
 /** Reject an AI paragraph that cites a rupiah figure we did not compute. */
 export function aiTextIsGrounded(text: string, allowed: number[]): boolean {
-  const matches = [...text.matchAll(/rp\s*([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)/gi)];
-  if (matches.length === 0) return false;
-  return matches.every((match) => {
-    const amount = Number(match[1].replace(/\./g, ""));
-    return allowed.includes(amount);
-  });
+  const found = amountsMentioned(text);
+  if (found.length === 0) return false;
+  return found.every((amount) => allowed.includes(amount));
+}
+
+function amountsMentioned(text: string): number[] {
+  const pattern = new RegExp(AMOUNT_TOKEN_SOURCE, "gi");
+  const found: number[] = [];
+  for (const match of text.matchAll(pattern)) {
+    const amount = parseAmountToken(match[0]);
+    if (amount != null) found.push(amount);
+  }
+  return found;
 }

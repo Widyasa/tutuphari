@@ -3,9 +3,12 @@ import { handleExplain, handleExtract } from "@/lib/handlers";
 import { resetGeminiCache } from "@/lib/gemini";
 import type { Bucket } from "@/lib/rate-limit";
 import { createDemoDay } from "@/lib/demo";
+import { parseNotes } from "@/lib/parser";
+import type { Entry } from "@/lib/types";
 import { closeDay } from "@/lib/calculator";
 import {
   aiTextIsGrounded,
+  allowedExplainAmounts,
   explainUserPrompt,
   explanationContradictsEntries,
   explanationLeaksInternals,
@@ -467,6 +470,135 @@ describe("handleExplain", () => {
     expect(body.model).toBeUndefined();
     expect(explanationLeaksInternals(body.explanation)).toBe(false);
     expect(body.explanation.toLowerCase()).toContain("belum jelas");
+  });
+});
+
+function uiReproDay() {
+  const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
+  const added = ["jual nasi campur 3 x 15rb tunai", "es teh 2 10rb"].map((text, index) => {
+    const parsed = parseNotes(text)[0];
+    const entry: Entry = {
+      ...parsed,
+      id: index === 0 ? "ui-entry-nasi" : "ui-entry-teh",
+      noteId: index === 0 ? "ui-note-nasi" : "ui-note-teh",
+      status: "draft",
+      parser: "ai",
+    };
+    return entry;
+  });
+  return { ...day, entries: [...day.entries, ...added] };
+}
+
+function uiExplainBody(day: ReturnType<typeof uiReproDay>) {
+  return {
+    warungName: day.warungName,
+    modalAwal: day.modalAwal,
+    countedCash: day.countedCash,
+    countedQris: day.countedQris,
+    entries: day.entries,
+  };
+}
+
+describe("explain validators for the live UI payload", () => {
+  beforeEach(() => {
+    resetGeminiCache();
+  });
+
+  it("accepts a realistic closing sentence for the demo plus two added notes", async () => {
+    const day = uiReproDay();
+    const result = closeDay(day);
+    const allowed = allowedExplainAmounts(result, day.entries);
+    expect(allowed).toContain(45_000);
+    expect(allowed).toContain(10_000);
+    expect(allowed).toContain(result.penjualanTunai + result.penjualanQris);
+    expect(aiTextIsGrounded("Nasi campur tambahan 45 ribu.", allowed)).toBe(true);
+    expect(aiTextIsGrounded("Selisihnya ada, tanpa angka.", allowed)).toBe(false);
+    const sentence =
+      "Penjualan tunai nasi campur Rp45.000 dan es teh Rp10.000 belum jelas. Uang dihitung Rp270.000, seharusnya Rp255.000, selisih lebih Rp15.000.";
+    expect(explanationContradictsEntries(sentence, day.entries)).toBe(false);
+    const response = await handleExplain(request(uiExplainBody(day), "10.4.0.1"), {
+      apiKey: "test-key",
+      buckets: new Map<string, Bucket>(),
+      now: 11_000,
+      fetchImpl: async () => geminiOf({ explanation: sentence }),
+    });
+    const body = await response.json();
+    expect(body.parser).toBe("ai");
+    expect(body.provider).toBe("gemini");
+    expect(body.model).toBe("gemini-3-flash-preview");
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(
+      "/opt/cursor/artifacts/ui-explain-payload.json",
+      `${JSON.stringify(uiExplainBody(day), null, 2)}\n`,
+    );
+  });
+
+  it("rejects an explain reply that cites an amount nobody recorded", async () => {
+    const day = uiReproDay();
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    const response = await handleExplain(request(uiExplainBody(day), "10.4.0.2"), {
+      apiKey: "test-key",
+      buckets: new Map<string, Bucket>(),
+      now: 11_100,
+      fetchImpl: async () =>
+        geminiOf({
+          explanation: "Ada bon tersembunyi Rp99.000. Selisih lebih Rp15.000.",
+        }),
+    });
+    spy.mockRestore();
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    expect(body.warning).toMatch(/tanpa AI/i);
+    expect(warnings.join(" ")).toContain('"reason":"ungrounded"');
+  });
+
+  it("rejects an explain reply that is not the schema", async () => {
+    const day = uiReproDay();
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    const response = await handleExplain(request(uiExplainBody(day), "10.4.0.3"), {
+      apiKey: "test-key",
+      models: "gemini-3-flash-preview",
+      buckets: new Map<string, Bucket>(),
+      now: 11_200,
+      fetchImpl: async () => geminiOf({ nope: true }),
+    });
+    spy.mockRestore();
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    expect(warnings.join(" ")).toContain('"reason":"schema"');
+  });
+
+  it("reports rule when the explain provider errors", async () => {
+    const day = uiReproDay();
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    const response = await handleExplain(request(uiExplainBody(day), "10.4.0.4"), {
+      apiKey: "gemini-secret",
+      models: "gemini-3-flash-preview",
+      buckets: new Map<string, Bucket>(),
+      now: 11_300,
+      fetchImpl: async () => jsonResponse({ error: "unavailable" }, 503),
+    });
+    spy.mockRestore();
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    expect(body.warning).toMatch(/tanpa AI/i);
+    expect(warnings.join(" ")).toContain('"reason":"provider_error"');
+    expect(warnings.join(" ")).not.toContain("gemini-secret");
   });
 });
 

@@ -36,7 +36,7 @@ The live model is Grok via xAI, model `grok-4.20-0309-non-reasoning`. Override i
 
 Grok, and Gemini when Grok is unavailable, do two jobs on the server:
 
-1. **Extraction.** A free-text note goes to Gemini with a JSON schema (`responseMimeType: application/json` and `responseJsonSchema`). The model must return type, amount in rupiah, method, item, quantity, counterparty, confidence, a source quote, and a confirmation question when the method or amount is unclear. The prompt forbids invented transactions and balancing entries. The server then drops any row whose source quote is not in the note, and it will not keep an amount the note cannot support.
+1. **Extraction.** A free-text note goes to xAI first. Gemini receives it only if Grok fails. The model must return type, amount in rupiah, method, item, quantity, counterparty, confidence, a source quote, and a confirmation question when the method or amount is unclear. The prompt forbids invented transactions and balancing entries. The server then drops any row whose source quote is not in the note, and it will not keep an amount the note cannot support.
 2. **Closing sentence.** A second call receives the day's notes in plain Indonesian: tunai, QRIS, transfer, or belum jelas. Unclear notes stay belum jelas, with a "kalau" sentence only when the calculator already computed that case. If the reply cites a rupiah figure that was not computed, assigns a payment method the note does not have, or echoes a code name, the reply is thrown away and the rule summary is used. `parser` is `ai` only when a provider returned schema-valid output that passes those checks. Provider and model are included only on that success.
 
 The model never decides the selisih. Expected cash is:
@@ -56,7 +56,8 @@ Phone (Bahasa Indonesia, no account)
   → Next.js UI
   → localStorage (day, history, kasbon)
   → POST /api/extract or /api/explain  (rate limit, size limit)
-       → Gemini, structured JSON
+       → xAI Grok, structured JSON
+       → if that fails: Gemini chain
        → if that fails: rule parser / local explanation
   → deterministic calculator (integer rupiah)
   → selisih, CSV, WhatsApp text

@@ -212,7 +212,7 @@ export async function handleExplain(
     countedQris: countedQris != null && Number.isFinite(countedQris) ? countedQris : null,
   });
   const local = explainClose(result);
-  const allowed = allowedExplainAmounts(result);
+  const allowed = allowedExplainAmounts(result, entries);
 
   if (!allowRequest(deps.buckets, clientIp(request), deps.now) || (!deps.apiKey && !deps.xaiApiKey)) {
     return Response.json({
@@ -242,26 +242,45 @@ export async function handleExplain(
       maxOutputTokens: 512,
     });
     if (!matchesExplainSchema(ai.data)) {
-      return ruleExplain(local);
+      return rejectExplain(local, "schema", ai);
     }
     const explanation = ai.data.explanation.trim();
-    const consistent =
-      aiTextIsGrounded(explanation, allowed) &&
-      !explanationContradictsEntries(explanation, entries) &&
-      !explanationLeaksInternals(explanation);
-    if (consistent) {
-      return Response.json({
-        parser: "ai",
-        explanation,
-        provider: ai.provider,
-        model: ai.model,
-      });
+    if (!aiTextIsGrounded(explanation, allowed)) {
+      return rejectExplain(local, "ungrounded", ai);
     }
-  } catch {
-    // Fall through to the deterministic paragraph.
+    if (explanationContradictsEntries(explanation, entries)) {
+      return rejectExplain(local, "contradiction", ai);
+    }
+    if (explanationLeaksInternals(explanation)) {
+      return rejectExplain(local, "leak", ai);
+    }
+    return Response.json({
+      parser: "ai",
+      explanation,
+      provider: ai.provider,
+      model: ai.model,
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.message === "schema" ? "schema" : "provider_error";
+    return rejectExplain(local, reason);
   }
+}
 
-  return ruleExplain(local);
+function rejectExplain(
+  explanation: string,
+  reason: "schema" | "ungrounded" | "contradiction" | "leak" | "provider_error",
+  meta?: { provider: string; model: string },
+): Response {
+  console.warn(
+    JSON.stringify({
+      route: "explain",
+      provider: meta?.provider ?? null,
+      model: meta?.model ?? null,
+      status: "rejected",
+      reason,
+    }),
+  );
+  return ruleExplain(explanation);
 }
 
 function ruleExplain(explanation: string): Response {
