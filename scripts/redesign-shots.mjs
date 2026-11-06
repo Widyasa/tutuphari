@@ -51,6 +51,7 @@ await page.evaluate(() => {
 });
 await page.reload({ waitUntil: "networkidle" });
 await click("Coba demo");
+await page.setViewportSize({ width: 390, height: 844 });
 await page.getByTestId("home-expected").waitFor();
 const homeText = await page.locator("body").innerText();
 note("home copy avoids Expected", !/expected/i.test(homeText), "found Expected");
@@ -118,7 +119,7 @@ await page.getByTestId("home-expected").waitFor();
 const stored = await page.evaluate(() => localStorage.getItem("tutuphari.v1") ?? "");
 note("reload keeps ledger", stored.includes("120000") && stored.includes("jual es teh 2 10rb"), "store missing demo entries");
 
-await click("Tutup hari");
+await click("Cek catatan");
 await page.getByRole("heading", { name: "Perlu kamu pilih" }).waitFor();
 await shot("ambigu");
 await page.getByRole("button", { name: /QRIS/ }).click();

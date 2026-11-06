@@ -442,34 +442,41 @@ export function V3App() {
   return (
     <div
       id="app-shell"
-      className="bg-background text-foreground pt-[env(safe-area-inset-top)] lg:grid lg:grid-cols-[240px_minmax(0,1fr)]"
+      className="desk-shell bg-background text-foreground pt-[env(safe-area-inset-top)] lg:grid lg:grid-cols-[208px_minmax(0,1fr)] lg:items-stretch lg:gap-0 lg:p-0"
       style={{ minHeight: "calc(100dvh - var(--kb))" }}
     >
-      <aside className="sticky top-0 hidden h-[calc(100dvh-var(--kb))] flex-col border-r border-border bg-card px-3 py-4 lg:flex">
-        <p className="px-3 pb-4 text-lg font-bold text-primary">TutupHari</p>
+      <aside className="desk-nav sticky top-7 hidden h-fit flex-col rounded-[10px] border border-border bg-card p-3 lg:flex">
+        <p className="px-3.5 pt-2 pb-4 text-base font-bold tracking-[-0.02em] text-primary">TutupHari</p>
         <SidebarNav dest={nav.dest} onDest={goDest} />
+        <Button type="button" variant="outline" className="mt-3 w-full" onClick={() => setSettingsOpen(true)}>
+          Pengaturan
+        </Button>
       </aside>
 
-      <div className="flex min-w-0 flex-col" style={{ minHeight: "calc(100dvh - var(--kb))" }}>
+      <div className="desk-pane flex min-w-0 flex-col" style={{ minHeight: "calc(100dvh - var(--kb))" }}>
         {flow ? (
-          <header className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
+          <header className="flex items-center gap-2 px-4 py-3 lg:px-0">
             <Button type="button" variant="outline" size="icon" aria-label="Kembali" onClick={onBack}>
               <ArrowLeft />
             </Button>
             <div className="min-w-0 flex-1">
-              <p className="text-base font-bold leading-tight">{progress?.title}</p>
-              <p className="text-sm text-muted-foreground">{progress?.meta}</p>
+              <p className="text-[15px] font-bold leading-tight tracking-[-0.02em]">{progress?.title}</p>
+              <p className="text-xs text-muted-foreground">{progress?.meta}</p>
             </div>
-            <IconSettings onClick={() => setSettingsOpen(true)} />
+            <IconSettings onClick={() => setSettingsOpen(true)} className="lg:hidden" />
           </header>
         ) : (
-          <header className="flex items-center justify-between bg-background px-4 py-3">
-            <p className="text-lg font-bold text-primary">TutupHari</p>
+          <header className="flex items-center justify-between px-4 py-3 lg:hidden">
+            <p className="text-base font-bold tracking-[-0.02em] text-primary">TutupHari</p>
             <IconSettings onClick={() => setSettingsOpen(true)} />
           </header>
         )}
 
-        {day.isDemo && <p className="bg-[#E5E5E5] px-4 py-2 text-xs font-medium tracking-wide text-[#404040]">Data demo · {day.warungName}, {day.place}</p>}
+        {day.isDemo && (
+          <p className="demo-banner mx-4 mb-3 border border-border bg-[#E5E5E5] px-2.5 py-1.5 text-[11px] font-semibold tracking-[0.06em] text-[#404040] uppercase lg:mx-0">
+            Data demo · {day.warungName}, {day.place}
+          </p>
+        )}
         {offline && (
           <p className="bg-card px-4 py-2 text-sm" data-testid="offline-banner">
             Kamu sedang offline. AI tidak tersedia. Catatan baru dibaca di HP ini, tanpa AI.
@@ -485,7 +492,7 @@ export function V3App() {
         )}
         {notice && <p className="px-4 py-2 text-sm" aria-live="polite">{notice}</p>}
 
-        <main className="mx-auto w-full max-w-3xl flex-1 overflow-x-hidden overflow-y-auto px-4 py-4" data-screen={flow ?? nav.dest}>
+        <main className={flow ? "flow-desk w-full flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 lg:px-0" : "w-full flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 lg:px-0"} data-screen={flow ?? nav.dest}>
           {flow === "catat" && (
             <CatatPane draft={draftText} onDraft={setDraft} />
           )}
@@ -538,8 +545,13 @@ export function V3App() {
               masuk={tunaiMasuk}
               kasbonBayar={result.kasbonBayarTunai}
               unclear={unclear}
+              pending={day.entries.filter((entry) => entry.status !== "confirmed" || entry.needsConfirmation || entry.method === "tidak_tahu").length}
               kasbonTotal={kasbonTotal}
               people={activePeople.length}
+              closeLabel={gate === "hitung" ? "Tutup hari" : "Cek catatan"}
+              closeDisabled={day.entries.length === 0}
+              onClose={() => goStep(gate)}
+              onCatat={() => goStep("catat")}
             />
           )}
           {!flow && nav.dest === "kasbon" && (
@@ -553,6 +565,7 @@ export function V3App() {
               onToggle={() => setPayOpen((open) => !open)}
               onName={setPayName}
               onAmount={setPayAmount}
+              onSave={saveKasbonPayment}
             />
           )}
           {!flow && nav.dest === "riwayat" && (
@@ -567,6 +580,7 @@ export function V3App() {
                 }));
                 navigate({ dest: "hari", step: null, draft: next.draftNote ?? "" }, "push");
               }}
+              onCheck={() => goStep(closeGate(day.entries))}
             />
           )}
           {flow && (
@@ -576,30 +590,44 @@ export function V3App() {
               </button>
             </p>
           )}
+          {flow && (
+            <DayContext
+              expected={result.expectedCash}
+              pending={day.entries.filter((entry) => entry.status !== "confirmed" || entry.needsConfirmation || entry.method === "tidak_tahu").length}
+              omzet={result.penjualanTunai}
+              masuk={tunaiMasuk}
+              counted={day.countedCash}
+              qrisCounted={day.countedQris}
+              qrisNoted={result.penjualanQris}
+              kasbonTotal={kasbonTotal}
+              people={activePeople.length}
+              unclearLabel={unclear[0] ? `${unclear[0].item ?? "catatan"} ${compactRb(unclear[0].amount ?? 0)}` : null}
+            />
+          )}
         </main>
 
-        {(flow || nav.dest !== "riwayat") && (
-        <footer className="sticky bottom-0 z-20 border-t border-border bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="mx-auto w-full max-w-3xl">
+        {flow && (
+        <footer className="sticky bottom-0 z-20 border-t border-[#E5E5E5] bg-[#F5F5F4] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:px-0">
+          <div className="flex w-full flex-col gap-2 lg:max-w-xl">
           {flow === "catat" && (
-            <Button type="button" className="w-full" data-testid="primary-cta" disabled={!draftText.trim() || reading} onClick={() => sendDraft(draftText.trim())}>
+            <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" disabled={!draftText.trim() || reading} onClick={() => sendDraft(draftText.trim())}>
               Kirim — ekstrak catatan
             </Button>
           )}
           {flow === "loading" && (
-            <Button type="button" className="w-full" data-testid="primary-cta" disabled>
+            <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" disabled>
               Kirim — ekstrak catatan
             </Button>
           )}
           {flow === "fallback" && (
-            <Button type="button" className="w-full" data-testid="primary-cta" disabled={parseMoneyInput(manualAmount) == null} onClick={saveManual}>
+            <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" disabled={parseMoneyInput(manualAmount) == null} onClick={saveManual}>
               Simpan manual
             </Button>
           )}
           {flow === "ambigu" && (
             <Button
               type="button"
-              className="w-full"
+              className="h-12 w-full lg:w-auto lg:min-w-56"
               data-testid="primary-cta"
               disabled={!ambiguShown || ambiguShown.method === "tidak_tahu"}
               onClick={() => {
@@ -625,7 +653,7 @@ export function V3App() {
                     : "Masih ada catatan yang belum dikonfirmasi."}
                 </p>
               )}
-              <Button type="button" className="w-full" data-testid="primary-cta" disabled={!canCountDrawer(day.entries)} onClick={() => goStep("hitung")}>
+              <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" disabled={!canCountDrawer(day.entries)} onClick={() => goStep("hitung")}>
                 Lanjut hitung laci
               </Button>
             </div>
@@ -633,7 +661,7 @@ export function V3App() {
           {flow === "hitung" && (
             <Button
               type="button"
-              className="w-full"
+              className="h-12 w-full lg:w-auto lg:min-w-56"
               data-testid="primary-cta"
               disabled={day.countedCash == null || !canCountDrawer(day.entries)}
               onClick={() => goStep("hasil")}
@@ -642,47 +670,27 @@ export function V3App() {
             </Button>
           )}
           {flow === "hasil" && (
-            <div className="grid gap-2">
-              <Button type="button" className="w-full" data-testid="primary-cta" onClick={() => goStep("export")}>
+            <div className="grid gap-2 lg:flex">
+              <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" onClick={() => goStep("export")}>
                 Bagikan rekap
               </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={finishClose}>
+              <Button type="button" variant="outline" className="h-12 w-full lg:w-auto" onClick={finishClose}>
                 Selesai — ke Hari Ini
               </Button>
             </div>
           )}
           {flow === "export" && (
-            <div className="grid gap-2">
-              <Button type="button" className="w-full" data-testid="primary-cta" onClick={copyRecap}>
+            <div className="grid gap-2 lg:flex lg:items-center">
+              <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" onClick={copyRecap}>
                 Salin teks WhatsApp
               </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={downloadCsv}>
-                Unduh CSV
-              </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={finishClose}>
+              <Button type="button" variant="outline" className="h-12 w-full lg:w-auto" onClick={finishClose}>
                 Selesai — ke Hari Ini
               </Button>
-            </div>
-          )}
-          {!flow && nav.dest === "hari" && (
-            <div className="grid gap-2">
-              <Button type="button" className="w-full" data-testid="primary-cta" disabled={day.entries.length === 0} onClick={() => goStep(gate)}>
-                Tutup hari
-              </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={() => goStep("catat")}>
-                Lanjutkan catat
+              <Button type="button" variant="ghost" className="h-12 w-full lg:w-auto" onClick={downloadCsv}>
+                Unduh CSV
               </Button>
             </div>
-          )}
-          {!flow && nav.dest === "kasbon" && !payOpen && (
-            <Button type="button" className="w-full" data-testid="primary-cta" onClick={() => setPayOpen(true)}>
-              Catat bayar kasbon
-            </Button>
-          )}
-          {!flow && nav.dest === "kasbon" && payOpen && (
-            <Button type="button" className="w-full" data-testid="primary-cta" disabled={!payName.trim() || parseMoneyInput(payAmount) == null} onClick={saveKasbonPayment}>
-              Simpan pembayaran
-            </Button>
           )}
           </div>
         </footer>
@@ -801,9 +809,9 @@ function serverOnline() {
   return true;
 }
 
-function IconSettings({ onClick }: { onClick: () => void }) {
+function IconSettings({ onClick, className }: { onClick: () => void; className?: string }) {
   return (
-    <Button type="button" variant="outline" size="icon" aria-label="Pengaturan" onClick={onClick}>
+    <Button type="button" variant="outline" size="icon" aria-label="Pengaturan" className={className} onClick={onClick}>
       <Settings />
     </Button>
   );
@@ -891,7 +899,7 @@ function StartScreen({
         </div>
         <div>
           <Label htmlFor="modal">Uang di laci sekarang</Label>
-          <Input id="modal" inputMode="numeric" className="mt-2 h-12" value={modal} placeholder="200000" onChange={(event) => setModal(event.target.value)} />
+          <Input id="modal" inputMode="numeric" className="mt-2 h-12" value={modal} placeholder="contoh: 200000" onChange={(event) => setModal(event.target.value)} />
         </div>
         <Button type="submit" className="w-full" disabled={amount == null}>Mulai catat</Button>
       </form>
@@ -912,7 +920,7 @@ function CatatPane({ draft, onDraft }: { draft: string; onDraft: (text: string) 
         value={draft}
         onChange={(event) => onDraft(event.target.value)}
         onFocus={(event) => event.currentTarget.scrollIntoView({ block: "center" })}
-        placeholder="jual es teh 2 10rb"
+        placeholder="contoh: jual kopi 1 gelas 5rb tunai"
         className="mt-2 min-h-32 text-base"
       />
     </div>
@@ -1141,6 +1149,52 @@ function ExportPane({ text }: { text: string }) {
   );
 }
 
+function DayContext({
+  expected,
+  pending,
+  omzet,
+  masuk,
+  counted,
+  qrisCounted,
+  qrisNoted,
+  kasbonTotal,
+  people,
+  unclearLabel,
+}: {
+  expected: number;
+  pending: number;
+  omzet: number;
+  masuk: number;
+  counted: number | null;
+  qrisCounted: number | null;
+  qrisNoted: number;
+  kasbonTotal: number;
+  people: number;
+  unclearLabel: string | null;
+}) {
+  return (
+    <aside className="desk-context hidden lg:block">
+      <h2 className="text-xl font-bold tracking-[-0.02em]">Ringkasan hari ini</h2>
+      <p className="text-[13px] text-muted-foreground">{pending > 0 ? "Uang laci seharusnya sementara" : "Uang laci seharusnya"}</p>
+      <p className="money mt-1 text-[1.75rem] font-semibold">{formatRupiah(expected)}</p>
+      <p className="text-[13px] text-muted-foreground">
+        Dari catatan yang sudah dikonfirmasi.
+        {unclearLabel ? ` ${unclearLabel} belum termasuk.` : pending > 0 ? " Masih ada catatan belum dikonfirmasi." : ""}
+      </p>
+      <div className="mt-3 divide-y divide-[#E5E5E5] border-y border-[#E5E5E5] text-sm">
+        <p className="flex justify-between gap-3 py-3"><span>Omzet tunai</span><span className="money font-semibold">{formatRupiah(omzet)}</span></p>
+        <p className="flex justify-between gap-3 py-3"><span>Total tunai masuk</span><span className="money font-semibold">{formatRupiah(masuk)}</span></p>
+        <p className="flex justify-between gap-3 py-3"><span>Hitung laci</span><span className="money font-semibold">{counted == null ? "belum diisi" : formatRupiah(counted)}</span></p>
+        <p className="flex justify-between gap-3 py-3"><span>QRIS terhitung<span className="mt-0.5 block text-xs text-muted-foreground">Bukan uang laci</span></span><span className="money font-semibold">{formatRupiah(qrisCounted ?? qrisNoted)}</span></p>
+      </div>
+      <h2 className="mt-5 text-xl font-bold">Kasbon</h2>
+      <p>Total belum lunas <span className="money font-semibold">{formatRupiah(kasbonTotal)}</span></p>
+      <p className="text-[13px] text-muted-foreground">{people} orang</p>
+      {pending > 0 && <p className="mt-4 text-[13px] text-muted-foreground">Angka sementara bukan hasil akhir.</p>}
+    </aside>
+  );
+}
+
 function HomePane({
   day,
   expected,
@@ -1148,8 +1202,13 @@ function HomePane({
   masuk,
   kasbonBayar,
   unclear,
+  pending,
   kasbonTotal,
   people,
+  closeLabel,
+  closeDisabled,
+  onClose,
+  onCatat,
 }: {
   day: DayRecord;
   expected: number;
@@ -1157,40 +1216,119 @@ function HomePane({
   masuk: number;
   kasbonBayar: number;
   unclear: Entry[];
+  pending: number;
   kasbonTotal: number;
   people: number;
+  closeLabel: string;
+  closeDisabled: boolean;
+  onClose: () => void;
+  onCatat: () => void;
 }) {
   const first = unclear[0];
   return (
-    <div>
+    <>
+    <div className="lg:hidden">
       <p className="text-sm text-muted-foreground">{formatMediumDate(day.date)}</p>
-      <h1 className="mt-1 text-2xl font-bold tracking-tight">Hari ini</h1>
-      <div className="mt-4 rounded-xl border border-border bg-card p-4">
-        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Uang laci seharusnya</p>
-        <p className="money text-4xl font-bold" data-testid="home-expected">{formatRupiah(expected)}</p>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+      <h1 className="mt-1 text-[1.375rem] font-bold tracking-[-0.03em]">Hari ini</h1>
+      <div className="mt-4 rounded-[10px] border border-border bg-card p-4">
+        <p className="text-[11px] font-semibold tracking-[0.04em] text-muted-foreground uppercase">Uang laci seharusnya</p>
+        <p className="money mt-0.5 text-4xl font-semibold" data-testid="home-expected">{formatRupiah(expected)}</p>
+        <p className="mt-2 text-[13px] leading-snug text-muted-foreground">
           Dari catatan yang sudah dikonfirmasi
           {first && first.amount != null
             ? ` · belum termasuk ${unclear.length} item perlu dipilih (${first.item ?? "catatan"} ${compactRb(first.amount)})`
-            : ""}
+            : pending > 0
+              ? ` · ${pending} catatan belum dikonfirmasi`
+              : ""}
         </p>
+        {pending > 0 && (
+          <p className="mt-2 text-sm font-semibold text-[#991B1B]">
+            Angka ini belum final. Masih ada catatan yang belum selesai.
+          </p>
+        )}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div className="rounded-xl border border-border bg-card p-3">
           <p className="text-xs text-muted-foreground">Omzet tunai</p>
-          <p className="money text-xl font-bold">{formatRupiah(omzet)}</p>
+          <p className="money text-xl font-semibold">{formatRupiah(omzet)}</p>
           <p className="text-xs text-muted-foreground">penjualan saja</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-3">
           <p className="text-xs text-muted-foreground">Total tunai masuk</p>
-          <p className="money text-xl font-bold">{formatRupiah(masuk)}</p>
+          <p className="money text-xl font-semibold">{formatRupiah(masuk)}</p>
           <p className="text-xs break-words text-muted-foreground">{compactRb(omzet)} omzet + {compactRb(kasbonBayar)} bayar kasbon</p>
         </div>
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
         Kasbon aktif {formatRupiah(kasbonTotal)} · {people} orang
       </p>
+      <div className="mt-4 grid gap-2">
+        <Button type="button" className="h-12 w-full" data-testid="primary-cta" disabled={closeDisabled} onClick={onClose}>
+          {closeLabel}
+        </Button>
+        <Button type="button" variant="outline" className="h-12 w-full" onClick={onCatat}>
+          Lanjutkan catat
+        </Button>
+      </div>
     </div>
+    <div className="hidden lg:block">
+      <h1 className="text-[1.875rem] font-bold tracking-[-0.025em]">Hari ini</h1>
+      <p className="text-sm text-muted-foreground">
+        {day.entries.length} catatan
+        {pending > 0 ? ` · ${pending} perlu diperiksa sebelum tutup hari.` : " · siap dihitung."}
+      </p>
+      {pending > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-4 border border-[#991B1B] bg-card px-5 py-4 text-[#991B1B]">
+          <p>
+            <span className="font-bold">
+              Perlu diperiksa: {first?.item ?? "catatan"} {first?.amount != null ? formatRupiah(first.amount) : ""}
+            </span>
+            <span className="mt-1 block">Tunai atau QRIS belum selesai. Perhitungan belum final.</span>
+          </p>
+          <Button type="button" className="h-12 shrink-0" disabled={closeDisabled} onClick={onClose}>
+            {closeLabel === "Cek catatan" ? "Periksa catatan" : closeLabel}
+          </Button>
+        </div>
+      )}
+      <div className="desk-workspace mt-6">
+        <section className="desk-paper">
+          <p className="text-[13px] text-muted-foreground">{pending > 0 ? "Uang laci seharusnya sementara" : "Uang laci seharusnya"}</p>
+          <p className="money text-[2.875rem] font-semibold">{formatRupiah(expected)}</p>
+          <p>
+            {first && first.amount != null
+              ? `Belum termasuk ${first.item ?? "catatan"} ${formatRupiah(first.amount)} yang perlu dipilih.`
+              : pending > 0
+                ? "Belum final. Masih ada catatan yang belum dikonfirmasi."
+                : "Dari catatan yang sudah dikonfirmasi."}
+          </p>
+          <div className="mt-2 divide-y divide-[#E5E5E5] border-y border-[#E5E5E5]">
+            <p className="flex justify-between py-3 text-sm"><span>Omzet tunai</span><span className="money font-semibold">{formatRupiah(omzet)}</span></p>
+            <p className="flex justify-between py-3 text-sm"><span>Total tunai masuk</span><span className="money font-semibold">{formatRupiah(masuk)}</span></p>
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-4 border-t border-border pt-5">
+            <p className="text-[13px] text-muted-foreground">Catatan baru masih bisa ditambahkan.</p>
+            <Button type="button" variant="ghost" className="h-12" onClick={onCatat}>Catat lagi</Button>
+          </div>
+          {pending === 0 && (
+            <Button type="button" className="mt-4 h-12" disabled={closeDisabled} onClick={onClose}>
+              {closeLabel}
+            </Button>
+          )}
+        </section>
+        <aside className="desk-context">
+          <h2 className="text-xl font-bold">Tutup hari</h2>
+          <p className="text-sm">Periksa metode pembayaran, hitung uang fisik, lalu cocokkan laci.</p>
+          <div className="divide-y divide-[#E5E5E5] border-y border-[#E5E5E5] text-sm">
+            <p className="flex justify-between gap-3 py-3"><span>Hitung laci yang tersimpan</span><span className="money font-semibold">{day.countedCash == null ? "belum diisi" : formatRupiah(day.countedCash)}</span></p>
+            <p className="flex justify-between gap-3 py-3"><span>QRIS terhitung · bukan laci</span><span className="money font-semibold">{formatRupiah(day.countedQris ?? 0)}</span></p>
+          </div>
+          <h2 className="mt-5 text-xl font-bold">Kasbon</h2>
+          <p>Total belum lunas <span className="money font-semibold">{formatRupiah(kasbonTotal)}</span></p>
+          <p className="text-[13px] text-muted-foreground">{people} orang belum lunas</p>
+        </aside>
+      </div>
+    </div>
+    </>
   );
 }
 
@@ -1204,6 +1342,7 @@ function KasbonPane({
   onToggle,
   onName,
   onAmount,
+  onSave,
 }: {
   people: { person: string; outstanding: number; movements: { source: string; direction: string; amount: number }[] }[];
   total: number;
@@ -1214,6 +1353,7 @@ function KasbonPane({
   onToggle: () => void;
   onName: (value: string) => void;
   onAmount: (value: string) => void;
+  onSave: () => void;
 }) {
   return (
     <div>
@@ -1239,15 +1379,26 @@ function KasbonPane({
         <div className="mt-4 grid gap-3">
           <div>
             <Label htmlFor="pay-name">Nama</Label>
-            <Input id="pay-name" className="mt-2 h-12" value={payName} onChange={(event) => onName(event.target.value)} />
+            <Input id="pay-name" className="mt-2 h-12" value={payName} placeholder="contoh: Bu Wayan" onChange={(event) => onName(event.target.value)} />
           </div>
           <div>
             <Label htmlFor="pay-amount">Jumlah yang dibayar</Label>
-            <Input id="pay-amount" inputMode="numeric" className="mt-2 h-12" value={payAmount} onChange={(event) => onAmount(event.target.value)} />
+            <Input id="pay-amount" inputMode="numeric" className="mt-2 h-12" value={payAmount} placeholder="contoh: 10000" onChange={(event) => onAmount(event.target.value)} />
           </div>
-          <Button type="button" variant="outline" onClick={onToggle}>Batal</Button>
+          <Button type="button" variant="outline" className="h-12" onClick={onToggle}>Batal</Button>
         </div>
       )}
+      <div className="mt-4">
+        {!payOpen ? (
+          <Button type="button" className="h-12 w-full" data-testid="primary-cta" onClick={onToggle}>
+            Catat bayar kasbon
+          </Button>
+        ) : (
+          <Button type="button" className="h-12 w-full" data-testid="primary-cta" disabled={!payName.trim() || parseMoneyInput(payAmount) == null} onClick={onSave}>
+            Simpan pembayaran
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1262,15 +1413,17 @@ function RiwayatPane({
   active,
   history,
   onOpen,
+  onCheck,
 }: {
   active: DayRecord;
   history: DayRecord[];
   onOpen: (day: DayRecord) => void;
+  onCheck: () => void;
 }) {
   const rows = [active, ...history.filter((day) => day.id !== active.id)];
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight">Riwayat</h1>
+      <h1 className="text-[1.375rem] font-bold tracking-[-0.03em]">Riwayat</h1>
       <p className="mt-1 text-sm text-muted-foreground">Hari-hari sebelumnya</p>
       <ul className="mt-4 grid gap-2">
         {rows.map((day) => {
@@ -1280,20 +1433,33 @@ function RiwayatPane({
             countedCash: day.countedCash,
             countedQris: day.countedQris,
           });
+          const pending = day.entries.some(
+            (entry) => entry.status !== "confirmed" || entry.needsConfirmation || entry.method === "tidak_tahu",
+          );
+          const provisional = !day.closedAt && pending;
           const tone = result.verdict === "kurang" ? "text-[#991B1B]" : result.verdict === "pas" ? "text-[#166534]" : "text-foreground";
           return (
-            <li key={day.id}>
-              <button type="button" className="min-h-16 w-full rounded-xl border border-border bg-card p-3 text-left" onClick={() => onOpen(day)}>
+            <li key={day.id} className="rounded-[10px] border border-border bg-card p-3">
+              <button type="button" className="min-h-12 w-full text-left" onClick={() => onOpen(day)}>
                 <span className="flex items-center justify-between gap-3">
                   <span className="font-bold">{formatMediumDate(day.date)}</span>
-                  <span className={cn("font-bold", tone)}>{gapLabel(result.selisih)}</span>
+                  <span className={cn("font-bold", provisional ? "text-[#991B1B]" : tone)}>
+                    {provisional ? "Belum final" : gapLabel(result.selisih)}
+                  </span>
                 </span>
                 <span className="mt-1 block text-sm text-muted-foreground">
-                  Laci seharusnya {compactRb(result.expectedCash)}
-                  {day.closedAt ? "" : " · berjalan"}
+                  {provisional
+                    ? `Selisih sementara ${gapLabel(result.selisih)} · catatan belum selesai`
+                    : `Laci seharusnya ${compactRb(result.expectedCash)}`}
+                  {day.closedAt ? "" : provisional ? "" : " · berjalan"}
                   {day.isDemo ? " · Data demo" : ""}
                 </span>
               </button>
+              {provisional && day.id === active.id && (
+                <Button type="button" className="mt-3 h-12 w-full" onClick={onCheck}>
+                  Cek catatan
+                </Button>
+              )}
             </li>
           );
         })}

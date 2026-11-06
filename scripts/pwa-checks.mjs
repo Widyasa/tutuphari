@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { chromium } from "playwright-core";
 
 const base = process.env.BASE_URL ?? "http://127.0.0.1:43227";
-const out = "/opt/cursor/artifacts/pwa";
+const out = process.env.PWA_OUT ?? "/opt/cursor/artifacts/pwa";
 await mkdir(out, { recursive: true });
 
 const swSource = await readFile(new URL("../public/sw.js", import.meta.url), "utf8");
@@ -152,11 +152,20 @@ await context.setOffline(true);
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.getByTestId("offline-banner").waitFor({ timeout: 15000 });
 await page.locator("#app-shell").waitFor();
-const offlineText = await page.locator("body").innerText();
+const demoBanner = (await page.locator("#app-shell").innerText()).replace(/\s+/g, " ");
+const offlineBanner = (await page.getByTestId("offline-banner").innerText()).replace(/\s+/g, " ");
+const onCatat = (await page.getByRole("heading", { name: "Catat", exact: true }).count()) > 0;
 note(
   "offline shell",
-  offlineText.includes("Data demo") && offlineText.includes("AI tidak tersedia") && offlineText.includes("Catat"),
-  offlineText.slice(0, 280),
+  /data demo/i.test(demoBanner) &&
+    /warung bu komang/i.test(demoBanner) &&
+    /denpasar/i.test(demoBanner) &&
+    /offline/i.test(offlineBanner) &&
+    /ai tidak tersedia/i.test(offlineBanner) &&
+    /tanpa ai/i.test(offlineBanner) &&
+    onCatat &&
+    (await page.locator("#draft-note").count()) > 0,
+  `banner=${offlineBanner} demo=${demoBanner.slice(0, 180)} catat=${onCatat}`,
 );
 await page.screenshot({ path: `${out}/shell-offline-mobile.png` });
 shots.push(`${out}/shell-offline-mobile.png`);
