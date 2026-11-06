@@ -16,11 +16,12 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 - Type free-text notes, or paste a whole day. Optional voice input when the browser supports Indonesian speech recognition.
 - Each note becomes cards the owner can accept, edit, or delete. The original sentence stays on the card.
 - Ambiguous notes, especially a sale with no payment method, stay out of the total until the owner chooses.
-- Tutup hari: counted cash in, expected cash and selisih out. QRIS is kept outside the drawer. The arithmetic is deterministic.
+- Tutup hari: counted cash in, uang laci seharusnya and selisih out. QRIS is kept outside the drawer. The arithmetic is deterministic.
+- Light mode only. Three destinations: Hari Ini, Kasbon, Riwayat. Catat, cek, hitung, and bagikan are a sub-flow, not a four-item menu.
 - A plain-language explanation. If the gap is not covered by the notes, it stays "belum terjelaskan".
 - Recap, CSV download, and WhatsApp text.
 - History and a kasbon ledger stored in the browser.
-- "Coba demo" loads a labeled sample day for Warung Bu Komang, Denpasar. The drawer is lebih Rp15.000 until the note "es jeruk 15rb" is marked tunai, then the drawer matches.
+- "Coba demo" loads a labeled sample day for Warung Bu Komang, Denpasar. Confirmed notes put Rp255.000 in the drawer. The note "jual es teh 2 10rb" stays out until it is tunai (Rp265.000) or QRIS (drawer stays Rp255.000).
 
 ## Tech Stack
 
@@ -92,7 +93,7 @@ https://tutuphari.vercel.app
 
 Open https://tutuphari.vercel.app on a phone-width window. There is no account. Tap **Coba demo**.
 
-The sample day is Warung Bu Komang, Denpasar, and the screen says it is synthetic. Modal awal is Rp200.000. The counted cash is already filled in as Rp270.000. Before the ambiguous note is resolved, expected cash is Rp255.000, so the drawer is **lebih Rp15.000**. The note `es jeruk 15rb` has no payment method. Choose **Tunai** and expected cash becomes Rp270.000, selisih pas. The es teh QRIS sale, Rp10.000, stays out of the drawer. If that note is marked QRIS instead, the cash gap stays lebih Rp15.000 and remains belum terjelaskan.
+The sample day is Warung Bu Komang, Denpasar, and the screen says it is synthetic. Modal awal is Rp200.000. Confirmed notes: nasi campur tunai Rp120.000, kasbon Pak Made paid Rp20.000, gas Rp25.000, ambil pribadi Rp50.000, kasbon Bu Wayan Rp10.000. Uang laci seharusnya is Rp255.000. Omzet tunai is Rp120.000. Total tunai masuk is Rp140.000. The note `jual es teh 2 10rb` is not included until you choose. Tunai makes the drawer Rp265.000. QRIS leaves it at Rp255.000 and shows QRIS Rp10.000. The sample count in the drawer is Rp240.000, so the gap is kurang Rp15.000 while es teh is still undecided.
 
 ## Demo Account
 
@@ -115,7 +116,7 @@ None. There is no login. Judges use **Coba demo** on the live site.
 - [shadcn/ui](https://ui.shadcn.com/)
 - [Tailwind CSS](https://tailwindcss.com/)
 - [Google Gemini API](https://ai.google.dev/)
-- [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/) and [IBM Plex Mono](https://github.com/IBM/plex) via `next/font`
+- [IBM Plex Sans](https://github.com/IBM/plex) and [IBM Plex Mono](https://github.com/IBM/plex) (OFL-1.1) via `next/font`. Icons are Lucide (ISC).
 - UI references and what was taken from each are listed in [docs/ui-references.md](docs/ui-references.md)
 
 ## Team Members

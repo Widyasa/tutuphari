@@ -65,6 +65,8 @@ export type DayRecord = {
   countedQris: number | null;
   closedAt: string | null;
   priorKasbon: PriorKasbon[];
+  /** Unsent note text. Survives navigation, Back, and reload. */
+  draftNote?: string;
 };
 
 export type Store = {

@@ -1,18 +1,18 @@
 import type { Metadata, Viewport } from "next";
-import { Atkinson_Hyperlegible, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 
-const sans = Atkinson_Hyperlegible({
+const sans = IBM_Plex_Sans({
   subsets: ["latin"],
-  weight: ["400", "700"],
-  variable: "--font-atkinson",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-plex-sans",
   display: "swap",
 });
 
 const mono = IBM_Plex_Mono({
   subsets: ["latin"],
-  weight: ["400", "600"],
-  variable: "--font-plex",
+  weight: ["500", "600", "700"],
+  variable: "--font-plex-mono",
   display: "swap",
 });
 
@@ -26,12 +26,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#14643f",
+  themeColor: "#F5F5F4",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="id" className={`${sans.variable} ${mono.variable} h-full antialiased`}>
+    <html lang="id" className={`${sans.variable} ${mono.variable} h-full antialiased`} style={{ colorScheme: "light" }}>
       <body className="min-h-dvh bg-background text-foreground">{children}</body>
     </html>
   );
