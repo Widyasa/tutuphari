@@ -17,44 +17,41 @@ export function explainClose(result: CloseResult): string {
     return "Isi dulu uang yang kamu hitung di laci.";
   }
 
-  const sentences: string[] = [];
-  if (result.selisih === 0) {
-    sentences.push(
-      `Laci pas. Uang yang dihitung sama dengan yang seharusnya, ${formatRupiah(result.expectedCash)}.`,
-    );
-  } else {
-    sentences.push(`Selisih ${gapPhrase(result.selisih)}.`);
-  }
-
-  if (result.penjualanQris > 0) {
-    sentences.push(
-      `QRIS tidak masuk laci. Omzet QRIS ${formatRupiah(result.penjualanQris)}.`,
-    );
-  }
-
-  const unknown = result.whatIfs.filter((item) => item.method === "tidak_tahu");
-  const unconfirmed = result.whatIfs.filter((item) => item.method !== "tidak_tahu");
-
-  for (const item of unknown) {
-    sentences.push(
-      `Ada catatan belum jelas metodenya: "${item.sourceText}". Kalau itu tunai, selisih jadi ${gapPhrase(item.asTunaiSelisih)}. Kalau QRIS, selisih jadi ${gapPhrase(item.asQrisSelisih)}.`,
-    );
-  }
-  for (const item of unconfirmed) {
-    sentences.push(
-      `Catatan belum dikonfirmasi dan belum masuk hitungan: "${item.sourceText}" ${formatRupiah(item.amount)}.`,
-    );
-  }
-
+  const lines = [gapSentence(result)];
+  if (result.penjualanQris > 0) lines.push(qrisSentence(result));
+  lines.push(...whatIfSentences(result));
   if (result.selisih !== 0) {
-    sentences.push(
-      unknown.length > 0 || unconfirmed.length > 0
+    lines.push(
+      result.whatIfs.length > 0
         ? "Angka yang masih tersisa setelah catatan itu belum terjelaskan."
         : "Belum terjelaskan. Tidak ada catatan yang masih menggantung untuk menutup angka ini.",
     );
   }
+  return lines.join("\n");
+}
 
-  return sentences.join(" ");
+function gapSentence(result: CloseResult): string {
+  const figures = `Uang yang dihitung ${formatRupiah(result.countedCash ?? 0)}. Seharusnya di laci ${formatRupiah(result.expectedCash)}. Selisih ${gapPhrase(result.selisih ?? 0)}.`;
+  return result.selisih === 0 ? `Laci pas. ${figures}` : figures;
+}
+
+function qrisSentence(result: CloseResult): string {
+  return `QRIS tidak masuk laci. Omzet QRIS ${formatRupiah(result.penjualanQris)}.`;
+}
+
+function noteStatusLine(item: WhatIf): string {
+  if (item.method === "tidak_tahu") {
+    return `Catatan "${item.sourceText}" cara bayarnya belum jelas.`;
+  }
+  return `Catatan "${item.sourceText}" belum dikonfirmasi, jadi belum masuk hitungan.`;
+}
+
+/** One calculator what-if per open note. Notes are never combined. */
+export function whatIfSentences(result: CloseResult): string[] {
+  return result.whatIfs.map((item) => {
+    const effect = `Kalau catatan ini tunai, selisih jadi ${gapPhrase(item.asTunaiSelisih)}. Kalau catatan ini QRIS, selisih jadi ${gapPhrase(item.asQrisSelisih)}.`;
+    return `${noteStatusLine(item)} ${effect}`;
+  });
 }
 
 export function allowedExplainAmounts(
@@ -163,18 +160,14 @@ export function explanationLeaksInternals(text: string): boolean {
   return false;
 }
 
-function spokenMethod(entry: Entry): string {
-  if (entry.status !== "confirmed" || entry.method === "tidak_tahu") return "belum jelas";
-  if (entry.method === "qris") return "QRIS";
-  if (entry.method === "transfer") return "transfer";
-  return "tunai";
+function spokenState(entry: Entry): string {
+  if (entry.method === "tidak_tahu") return "cara bayar belum jelas";
+  const method = entry.method === "qris" ? "QRIS" : entry.method === "transfer" ? "transfer" : "tunai";
+  if (entry.status !== "confirmed") return `cara bayar ${method}, belum dikonfirmasi`;
+  return `cara bayar ${method}, sudah dikonfirmasi`;
 }
 
-function whatIfLine(item: WhatIf): string {
-  return `Kalau "${item.sourceText}" ternyata tunai, selisih jadi ${gapPhrase(item.asTunaiSelisih)}. Kalau ternyata QRIS, selisih jadi ${gapPhrase(item.asQrisSelisih)}.`;
-}
-
-/** Facts for the closing model, written in words. No enum keys or code names. */
+/** Facts for the closing model. No combined hypotheticals and no code names. */
 export function explainUserPrompt(input: {
   warungName: string;
   result: CloseResult;
@@ -194,24 +187,164 @@ export function explainUserPrompt(input: {
   for (const entry of entries) {
     if (entry.amount == null) continue;
     lines.push(
-      `- "${entry.sourceText}": ${TYPE_LABEL[entry.type]}, cara bayar ${spokenMethod(entry)}, ${formatRupiah(entry.amount)}.`,
+      `- id ${entry.id}: "${entry.sourceText}": ${TYPE_LABEL[entry.type]}, ${spokenState(entry)}, ${formatRupiah(entry.amount)}.`,
     );
   }
-  if (result.whatIfs.length > 0) {
-    lines.push("Perkiraan kalau cara bayar catatan yang belum jelas beda:");
-    for (const item of result.whatIfs) lines.push(`- ${whatIfLine(item)}`);
-  }
-  lines.push("Tulis 2 atau 3 kalimat pendek. Jangan mulai dengan Kamu koma.");
+  lines.push("Isi claims saja. Jangan menulis pengandaian dan jangan menggabungkan catatan.");
   return lines.join("\n");
 }
 
-export function matchesExplainSchema(data: unknown): data is { explanation: string } {
+export type ClaimKind = "gap" | "qris_not_in_drawer" | "unclear_note" | "unconfirmed_note";
+
+export type ExplainClaim = {
+  kind: ClaimKind;
+  entryId: string | null;
+  amount: number;
+  sign: "lebih" | "kurang" | "pas" | null;
+};
+
+export type ExplainModelOutput = {
+  warmth: string;
+  claims: ExplainClaim[];
+};
+
+const CLAIM_KINDS = new Set<ClaimKind>([
+  "gap",
+  "qris_not_in_drawer",
+  "unclear_note",
+  "unconfirmed_note",
+]);
+
+export function matchesExplainSchema(data: unknown): data is ExplainModelOutput {
+  if (!data || typeof data !== "object") return false;
+  const warmth = (data as { warmth?: unknown }).warmth;
+  const claims = (data as { claims?: unknown }).claims;
+  if (typeof warmth !== "string" || !Array.isArray(claims)) return false;
+  return claims.every(isExplainClaim);
+}
+
+function isExplainClaim(value: unknown): value is ExplainClaim {
+  if (!value || typeof value !== "object") return false;
+  const claim = value as Record<string, unknown>;
   return (
-    !!data &&
-    typeof data === "object" &&
-    typeof (data as { explanation?: unknown }).explanation === "string" &&
-    (data as { explanation: string }).explanation.trim().length > 0
+    typeof claim.kind === "string" &&
+    CLAIM_KINDS.has(claim.kind as ClaimKind) &&
+    (claim.entryId === null || typeof claim.entryId === "string") &&
+    typeof claim.amount === "number" &&
+    Number.isInteger(claim.amount) &&
+    (claim.sign === null || claim.sign === "lebih" || claim.sign === "kurang" || claim.sign === "pas")
   );
+}
+
+export type ExplainAssessment =
+  | { ok: true; explanation: string }
+  | { ok: false; reason: "schema" | "relation" | "incomplete" | "phrasing" | "hypothetical" };
+
+/** Prove every claim. A true number in the wrong place is still a failure. */
+export function assessExplanation(input: {
+  model: unknown;
+  result: CloseResult;
+  entries: Entry[];
+}): ExplainAssessment {
+  if (!matchesExplainSchema(input.model)) return { ok: false, reason: "schema" };
+  const relation = claimRelation(input.model.claims, input.result);
+  if (relation) return { ok: false, reason: relation };
+  const warmth = warmthProblem(input.model.warmth, input.entries);
+  if (warmth) return { ok: false, reason: warmth };
+  return {
+    ok: true,
+    explanation: renderAcceptedExplanation(input.model.warmth, input.model.claims, input.result),
+  };
+}
+
+function claimRelation(
+  claims: ExplainClaim[],
+  result: CloseResult,
+): "relation" | "incomplete" | null {
+  if (result.selisih == null || result.countedCash == null || result.verdict === "belum_dihitung") {
+    return "incomplete";
+  }
+  const gaps = claims.filter((claim) => claim.kind === "gap");
+  if (gaps.length === 0) return "incomplete";
+  if (gaps.length !== 1) return "relation";
+  const gap = gaps[0];
+  if (gap.entryId !== null || gap.sign !== result.verdict || gap.amount !== Math.abs(result.selisih)) {
+    return "relation";
+  }
+
+  const qrisClaims = claims.filter((claim) => claim.kind === "qris_not_in_drawer");
+  if (result.penjualanQris > 0) {
+    if (qrisClaims.length === 0) return "incomplete";
+    if (
+      qrisClaims.length !== 1 ||
+      qrisClaims[0].entryId !== null ||
+      qrisClaims[0].amount !== result.penjualanQris ||
+      qrisClaims[0].sign !== null
+    ) {
+      return "relation";
+    }
+  } else if (
+    qrisClaims.some((claim) => claim.amount !== 0 || claim.entryId !== null || claim.sign !== null)
+  ) {
+    return "relation";
+  }
+
+  const expected = new Map(
+    result.whatIfs.map((item) => [
+      item.entryId,
+      item.method === "tidak_tahu" ? "unclear_note" : "unconfirmed_note",
+    ] as const),
+  );
+  const noteClaims = claims.filter(
+    (claim) => claim.kind === "unclear_note" || claim.kind === "unconfirmed_note",
+  );
+  if (noteClaims.length < expected.size) return "incomplete";
+  if (noteClaims.length !== expected.size) return "relation";
+  for (const claim of noteClaims) {
+    if (!claim.entryId) return "relation";
+    const kind = expected.get(claim.entryId);
+    const item = result.whatIfs.find((candidate) => candidate.entryId === claim.entryId);
+    if (!kind || !item || claim.kind !== kind || claim.amount !== item.amount || claim.sign !== null) {
+      return "relation";
+    }
+  }
+  return null;
+}
+
+function warmthProblem(warmth: string, entries: Entry[]): "hypothetical" | "phrasing" | null {
+  const text = warmth.trim();
+  if (!text) return null;
+  if (/\b(kalau|jika|seandainya)\b/i.test(text)) return "hypothetical";
+  if (/\bsemua\b/i.test(text) && /\b(tunai|qris|transfer|cash)\b/i.test(text)) return "hypothetical";
+  if (/\d/.test(text) || /\b(tunai|qris|transfer|cash)\b/i.test(text)) return "phrasing";
+  if (explanationLeaksInternals(text)) return "phrasing";
+  const lower = text.toLowerCase();
+  for (const entry of entries) {
+    const source = entry.sourceText.trim().toLowerCase();
+    if (source.length >= 4 && lower.includes(source)) return "phrasing";
+    const item = entry.item?.trim().toLowerCase() ?? "";
+    if (item.length >= 4 && lower.includes(item)) return "phrasing";
+  }
+  return null;
+}
+
+export function renderAcceptedExplanation(
+  warmth: string,
+  claims: ExplainClaim[],
+  result: CloseResult,
+): string {
+  const lines: string[] = [];
+  if (warmth.trim()) lines.push(warmth.trim());
+  if (claims.some((claim) => claim.kind === "gap")) lines.push(gapSentence(result));
+  if (claims.some((claim) => claim.kind === "qris_not_in_drawer") && result.penjualanQris > 0) {
+    lines.push(qrisSentence(result));
+  }
+  for (const item of result.whatIfs) {
+    if (!claims.some((claim) => claim.entryId === item.entryId)) continue;
+    lines.push(noteStatusLine(item));
+  }
+  lines.push(...whatIfSentences(result));
+  return lines.join("\n");
 }
 
 /** Reject an AI paragraph that cites a rupiah figure we did not compute. */
