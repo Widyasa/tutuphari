@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowLeft,
   Banknote,
@@ -84,10 +84,23 @@ export function V3App() {
   const [payName, setPayName] = useState("");
   const [payAmount, setPayAmount] = useState("");
   const [ambiguId, setAmbiguId] = useState<string | null>(null);
+  const [readNotice, setReadNotice] = useState<string | null>(null);
+  const offline = !useSyncExternalStore(subscribeOnline, onlineSnapshot, serverOnline);
   const navRef = useRef(nav);
   useEffect(() => {
     navRef.current = nav;
   }, [nav]);
+
+  useEffect(() => {
+    const onChange = () => refreshNetwork();
+    window.addEventListener("online", onChange);
+    window.addEventListener("offline", onChange);
+    refreshNetwork();
+    return () => {
+      window.removeEventListener("online", onChange);
+      window.removeEventListener("offline", onChange);
+    };
+  }, []);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -254,6 +267,9 @@ export function V3App() {
     }));
     const extracted = await extractNote(text);
     setReading(false);
+    setReadNotice(
+      extracted.warning ?? (extracted.parser === "ai" ? "Dibaca dengan AI." : "Dipakai pembacaan di HP ini, tanpa AI."),
+    );
     if (!extracted.entries.length) {
       setManualAmount("");
       setManualMethod("tunai");
@@ -424,7 +440,11 @@ export function V3App() {
   const progress = flow ? progressOf(flow) : null;
 
   return (
-    <div className="bg-background text-foreground lg:grid lg:grid-cols-[240px_minmax(0,1fr)]" style={{ minHeight: "calc(100dvh - var(--kb))" }}>
+    <div
+      id="app-shell"
+      className="bg-background text-foreground pt-[env(safe-area-inset-top)] lg:grid lg:grid-cols-[240px_minmax(0,1fr)]"
+      style={{ minHeight: "calc(100dvh - var(--kb))" }}
+    >
       <aside className="sticky top-0 hidden h-[calc(100dvh-var(--kb))] flex-col border-r border-border bg-card px-3 py-4 lg:flex">
         <p className="px-3 pb-4 text-lg font-bold text-primary">TutupHari</p>
         <SidebarNav dest={nav.dest} onDest={goDest} />
@@ -450,6 +470,16 @@ export function V3App() {
         )}
 
         {day.isDemo && <p className="bg-[#E5E5E5] px-4 py-2 text-xs font-medium tracking-wide text-[#404040]">Data demo · {day.warungName}, {day.place}</p>}
+        {offline && (
+          <p className="bg-card px-4 py-2 text-sm" data-testid="offline-banner">
+            Kamu sedang offline. AI tidak tersedia. Catatan baru dibaca di HP ini, tanpa AI.
+          </p>
+        )}
+        {readNotice && (
+          <p className="px-4 py-2 text-sm" data-testid="read-label">
+            {readNotice}
+          </p>
+        )}
         {saveFailed && (
           <p className="px-4 py-2 text-sm text-[#991B1B]">HP ini menolak penyimpanan. Catatan bisa hilang kalau halaman ditutup.</p>
         )}
@@ -736,6 +766,39 @@ export function V3App() {
       </Dialog>
     </div>
   );
+}
+
+let networkOffline = false;
+const networkListeners = new Set<() => void>();
+
+function publishOffline(value: boolean) {
+  if (networkOffline === value) return;
+  networkOffline = value;
+  for (const listener of networkListeners) listener();
+}
+
+function refreshNetwork() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    publishOffline(true);
+    return;
+  }
+  fetch("/sw.js", { method: "GET", cache: "no-store" }).then(
+    () => publishOffline(false),
+    () => publishOffline(true),
+  );
+}
+
+function subscribeOnline(onStoreChange: () => void) {
+  networkListeners.add(onStoreChange);
+  return () => networkListeners.delete(onStoreChange);
+}
+
+function onlineSnapshot() {
+  return !networkOffline;
+}
+
+function serverOnline() {
+  return true;
 }
 
 function IconSettings({ onClick }: { onClick: () => void }) {

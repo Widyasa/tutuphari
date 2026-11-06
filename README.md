@@ -101,7 +101,8 @@ None. There is no login. Judges use **Coba demo** on the live site.
 
 ## Known Limitations
 
-- Data lives in `localStorage` on one browser. Clearing site data, or switching phones, drops the history. There is no sync.
+- Data lives in `localStorage` on one browser. Clearing site data, or switching phones, drops the history. There is no sync. Updating the app shell, or deleting only the service-worker cache, does not clear those notes.
+- The installed app is a light-mode shell. Offline, AI is unavailable and the phone reads the note itself. `/api` responses are not cached.
 - The in-memory rate limit resets when the server process restarts and is not shared across instances.
 - The rule parser misses unusual slang and will not guess a missing amount.
 - Voice input depends on the browser (`SpeechRecognition`, `id-ID`). Typing always works.

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { PwaRegister } from "@/components/pwa-register";
 import "./globals.css";
 
 const sans = IBM_Plex_Sans({
@@ -21,11 +22,20 @@ export const metadata: Metadata = {
   description:
     "Catat kayak kirim pesan. Pas warung tutup, tahu uang laci seharusnya berapa dan selisih mana yang perlu dicek.",
   applicationName: "TutupHari",
+  appleWebApp: {
+    capable: true,
+    title: "TutupHari",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#F5F5F4",
   colorScheme: "light",
 };
@@ -33,7 +43,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="id" className={`${sans.variable} ${mono.variable} h-full antialiased`} style={{ colorScheme: "light" }}>
-      <body className="min-h-dvh bg-background text-foreground">{children}</body>
+      <body className="min-h-dvh bg-background text-foreground">
+        <PwaRegister />
+        {children}
+      </body>
     </html>
   );
 }
