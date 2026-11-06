@@ -782,7 +782,7 @@ function refreshNetwork() {
     publishOffline(true);
     return;
   }
-  fetch("/sw.js", { method: "GET", cache: "no-store" }).then(
+  fetch("/api/ping", { method: "GET", cache: "no-store" }).then(
     () => publishOffline(false),
     () => publishOffline(true),
   );
