@@ -32,12 +32,12 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 
 ## AI Implementation
 
-AI runs on Grok through the xAI API (`XAI_MODEL`, default `grok-4.20-0309-non-reasoning`, structured `json_schema` with `strict: true`, no reasoning parameters). If that call fails, the server tries the Gemini chain (`GEMINI_MODELS`, or `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-flash-latest`) inside one budget of about 8 seconds. The phone stops waiting after 9 seconds and uses the local rules.
+The live model is Grok via xAI, model `grok-4.20-0309-non-reasoning`. Override it with `XAI_MODEL`. It is the cheapest general-purpose model that was tested and still fit the latency budget, not the cheapest model overall. Structured output uses `json_schema` with `strict: true`. The request does not send reasoning parameters. If Grok fails, the server tries the Gemini chain (`GEMINI_MODELS`, otherwise `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, then `gemini-flash-latest`) inside one budget of about 8 seconds. The rule parser runs last. The phone stops waiting after 9 seconds and uses those local rules.
 
-Gemini and Grok are used for two jobs, both on the server:
+Grok, and Gemini when Grok is unavailable, do two jobs on the server:
 
 1. **Extraction.** A free-text note goes to Gemini with a JSON schema (`responseMimeType: application/json` and `responseJsonSchema`). The model must return type, amount in rupiah, method, item, quantity, counterparty, confidence, a source quote, and a confirmation question when the method or amount is unclear. The prompt forbids invented transactions and balancing entries. The server then drops any row whose source quote is not in the note, and it will not keep an amount the note cannot support.
-2. **Closing sentence.** A second call receives every confirmed and draft entry, including its method. `tidak_tahu` and draft rows must be called "belum jelas". If the reply cites a rupiah figure that was not computed, or assigns tunai, QRIS, or transfer to a note with a different method, the reply is thrown away and the rule summary is used. `parser` is `ai` only when a provider returned schema-valid output that passes those checks. Provider and model are included only on that success.
+2. **Closing sentence.** A second call receives the day's notes in plain Indonesian: tunai, QRIS, transfer, or belum jelas. Unclear notes stay belum jelas, with a "kalau" sentence only when the calculator already computed that case. If the reply cites a rupiah figure that was not computed, assigns a payment method the note does not have, or echoes a code name, the reply is thrown away and the rule summary is used. `parser` is `ai` only when a provider returned schema-valid output that passes those checks. Provider and model are included only on that success.
 
 The model never decides the selisih. Expected cash is:
 
@@ -135,7 +135,7 @@ Primakara University — AI Web Innovation Challenge, Bali DigiFest 2026 (Mahasi
 | Runtime | Node.js |
 | Storage | Browser localStorage. No database in this MVP. |
 | Hosting | Vercel, https://tutuphari.vercel.app |
-| AI model / API | Grok via xAI (`grok-4.20-0309-non-reasoning`). Gemini flash models are the fallback. Server-side only. |
+| AI model / API | Grok via xAI, model `grok-4.20-0309-non-reasoning` (override with `XAI_MODEL`). Cheapest general-purpose model that was tested and fit the latency budget, not the cheapest model overall. Gemini chain is the fallback. Rule parser is last. Server-side only. |
 | Role of AI | Extract structured entries from free text. Write a closing sentence grounded on confirmed entries and calculator output. |
 | What AI does not do | Invent transactions, choose the selisih, or force a gap to zero |
 | Fallback | Rule-based rupiah and keyword parser, marked "Tanpa AI" |

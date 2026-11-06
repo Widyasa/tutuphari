@@ -3,7 +3,9 @@ import {
   allowedExplainAmounts,
   aiTextIsGrounded,
   explainClose,
+  explainUserPrompt,
   explanationContradictsEntries,
+  explanationLeaksInternals,
   matchesExplainSchema,
 } from "@/lib/explain";
 import { EXPLAIN_SCHEMA, EXPLAIN_SYSTEM, EXTRACT_SCHEMA, EXTRACT_SYSTEM } from "@/lib/gemini";
@@ -222,30 +224,7 @@ export async function handleExplain(
     });
   }
 
-  const facts = {
-    warung: warungName,
-    modalAwal: result.modalAwal,
-    penjualanTunai: result.penjualanTunai,
-    penjualanQris: result.penjualanQris,
-    pengeluaranTunai: result.pengeluaranTunai,
-    ambilPribadiTunai: result.ambilPribadiTunai,
-    kasbonKeluarTunai: result.kasbonKeluarTunai,
-    kasbonBayarTunai: result.kasbonBayarTunai,
-    expectedCash: result.expectedCash,
-    countedCash: result.countedCash,
-    selisih: result.selisih,
-    whatIfs: result.whatIfs,
-    entries: entries.map((entry) => ({
-      source_text: entry.sourceText,
-      type: entry.type,
-      amount: entry.amount,
-      method: entry.method,
-      status: entry.status,
-      item: entry.item,
-      sebutan:
-        entry.status !== "confirmed" || entry.method === "tidak_tahu" ? "belum jelas" : entry.method,
-    })),
-  };
+  const prompt = explainUserPrompt({ warungName, result, entries });
 
   try {
     const ai = await runStructured({
@@ -255,7 +234,7 @@ export async function handleExplain(
       xaiApiKey: deps.xaiApiKey,
       xaiModel: deps.xaiModel,
       system: EXPLAIN_SYSTEM,
-      user: `Data tutup hari (jangan tambah apa pun di luar ini):\n${JSON.stringify(facts)}`,
+      user: `Data tutup hari. Jangan menambah apa pun di luar ini.\n${prompt}`,
       schema: EXPLAIN_SCHEMA,
       schemaName: "close_explanation",
       accept: matchesExplainSchema,
@@ -268,7 +247,8 @@ export async function handleExplain(
     const explanation = ai.data.explanation.trim();
     const consistent =
       aiTextIsGrounded(explanation, allowed) &&
-      !explanationContradictsEntries(explanation, entries);
+      !explanationContradictsEntries(explanation, entries) &&
+      !explanationLeaksInternals(explanation);
     if (consistent) {
       return Response.json({
         parser: "ai",

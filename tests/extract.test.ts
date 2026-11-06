@@ -3,9 +3,15 @@ import { handleExplain, handleExtract } from "@/lib/handlers";
 import { resetGeminiCache } from "@/lib/gemini";
 import type { Bucket } from "@/lib/rate-limit";
 import { createDemoDay } from "@/lib/demo";
-import { aiTextIsGrounded, explanationContradictsEntries } from "@/lib/explain";
+import { closeDay } from "@/lib/calculator";
+import {
+  aiTextIsGrounded,
+  explainUserPrompt,
+  explanationContradictsEntries,
+  explanationLeaksInternals,
+} from "@/lib/explain";
 import { XAI_MODEL_DEFAULT } from "@/lib/xai";
-import { extractNote, explainDay } from "@/lib/client-api";
+import { CLIENT_FETCH_TIMEOUT_MS, extractNote, explainDay } from "@/lib/client-api";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -423,24 +429,68 @@ describe("handleExplain", () => {
     expect(body.explanation.toLowerCase()).toContain("belum jelas");
     expect(body.warning).toBeTruthy();
   });
+
+  it("falls back when the closing sentence leaks internal field names", async () => {
+    const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
+    const leaked =
+      "Kamu, selisih laci lebih Rp15.000. Entri es jeruk 15rb dengan method tidak_tahu dan status draft wajib disebut belum jelas, sehingga asQrisSelisih Rp15.000 dari whatIfs belum terjelaskan.";
+    expect(explanationLeaksInternals(leaked)).toBe(true);
+    const prompt = explainUserPrompt({
+      warungName: day.warungName,
+      result: closeDay(day),
+      entries: day.entries,
+    });
+    expect(explanationLeaksInternals(prompt)).toBe(false);
+    expect(prompt).toContain("belum jelas");
+    expect(prompt).toContain("Kalau \"es jeruk 15rb\" ternyata tunai");
+    const response = await handleExplain(
+      request(
+        {
+          warungName: day.warungName,
+          modalAwal: day.modalAwal,
+          countedCash: day.countedCash,
+          countedQris: day.countedQris,
+          entries: day.entries,
+        },
+        "10.2.2.10",
+      ),
+      {
+        apiKey: "test-key",
+        buckets: new Map<string, Bucket>(),
+        now: 9_100,
+        fetchImpl: async () => geminiOf({ explanation: leaked }),
+      },
+    );
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    expect(explanationLeaksInternals(body.explanation)).toBe(false);
+    expect(body.explanation.toLowerCase()).toContain("belum jelas");
+  });
 });
 
 describe("client timeouts", () => {
-  it("uses the rule parser when extract does not settle", async () => {
+  it("aborts a fetch that never resolves after about 9s and uses the local parser", async () => {
+    const started = Date.now();
+    let abortedAt = 0;
     const fetchImpl: typeof fetch = (_input, init) =>
       new Promise((_resolve, reject) => {
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
         init?.signal?.addEventListener("abort", () => {
+          abortedAt = Date.now();
           reject(Object.assign(new Error("aborted"), { name: "TimeoutError" }));
         });
       });
-    const result = await extractNote("jual nasi campur 3 x 15rb tunai", {
-      fetchImpl,
-      timeoutMs: 20,
-    });
+    const result = await extractNote("jual nasi campur 3 x 15rb tunai", { fetchImpl });
+    const elapsed = abortedAt - started;
+    expect(CLIENT_FETCH_TIMEOUT_MS).toBe(9_000);
+    expect(elapsed).toBeGreaterThanOrEqual(8_500);
+    expect(elapsed).toBeLessThan(11_000);
     expect(result.parser).toBe("rule");
-    expect(result.entries[0]).toMatchObject({ amount: 45_000, method: "tunai" });
+    expect(result.entries[0]).toMatchObject({ amount: 45_000, method: "tunai", parser: "rule" });
     expect(result.warning).toMatch(/tanpa AI/i);
-  });
+  }, 15_000);
 
   it("returns no AI summary when explain does not settle", async () => {
     const fetchImpl: typeof fetch = (_input, init) =>

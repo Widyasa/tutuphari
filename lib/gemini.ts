@@ -88,14 +88,15 @@ Jika penjualan tidak menyebut tunai/QRIS/transfer, method = tidak_tahu, needs_co
 source_text wajib kutipan persis dari catatan.
 amount adalah rupiah bilangan bulat.`;
 
-export const EXPLAIN_SYSTEM = `Anda menjelaskan selisih laci warung dalam Bahasa Indonesia, 2 sampai 4 kalimat, sapaan "kamu".
-Pakai hanya angka dan entri yang diberikan. Jangan menambah transaksi.
-Setiap entri punya method. method tidak_tahu atau status draft wajib disebut "belum jelas".
-Jangan menyebut tunai, QRIS, atau transfer untuk entri itu, kecuali kalimat yang diawali kalau/jika/bila sebagai hipotesis dari data whatIfs.
-Jangan menulis bahwa catatan belum jelas "merupakan" atau "adalah" tunai, QRIS, atau transfer.
-Sebut nominal dengan awalan Rp dan pemisah ribuan titik, persis seperti di data.
-Jika selisih tidak nol dan tidak tertutup catatan yang ada, tulis "belum terjelaskan".
-QRIS yang memang method-nya qris tidak masuk uang laci.`;
+export const EXPLAIN_SYSTEM = `Tulis 2 atau 3 kalimat pendek untuk pemilik warung.
+Bahasanya hangat dan sehari-hari, seperti ngobrol di kasir.
+Jangan mulai dengan sapaan "Kamu,".
+Pakai hanya angka dan catatan di pesan ini. Jangan mengarang transaksi.
+Catatan yang tertulis "belum jelas" tetap belum jelas. Jangan memastikan cara bayarnya.
+Hipotesis yang sudah tertulis boleh diulang dengan kata "kalau".
+Sebut uang persis seperti di pesan, dengan Rp dan titik ribuan.
+Kalau selisih tidak nol dan belum tertutup catatan, tulis "belum terjelaskan".
+Jangan memakai nama field, kode, atau bahasa pemrograman.`;
 
 export function readGeminiText(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;

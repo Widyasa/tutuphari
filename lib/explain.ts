@@ -1,5 +1,6 @@
-import type { CloseResult } from "@/lib/calculator";
+import type { CloseResult, WhatIf } from "@/lib/calculator";
 import { formatRupiah } from "@/lib/rupiah";
+import { TYPE_LABEL, type Entry } from "@/lib/types";
 
 function gapPhrase(selisih: number): string {
   if (selisih === 0) return "pas Rp0";
@@ -131,6 +132,60 @@ function sentenceRefersTo(sentence: string, entry: MethodCheckEntry): boolean {
   if (source.length >= 4 && lower.includes(source)) return true;
   const item = entry.item?.trim().toLowerCase() ?? "";
   return item.length >= 4 && lower.includes(item);
+}
+
+const LEAKED_WORD = /tidak_tahu|whatifs|asqris|\bdraft\b/i;
+
+/** True when a closing sentence echoes code names instead of warung language. */
+export function explanationLeaksInternals(text: string): boolean {
+  const trimmed = text.trim();
+  if (/^kamu\s*,/i.test(trimmed)) return true;
+  if (LEAKED_WORD.test(trimmed)) return true;
+  if (trimmed.includes("_")) return true;
+  if (/[a-z][A-Z]/.test(trimmed)) return true;
+  return false;
+}
+
+function spokenMethod(entry: Entry): string {
+  if (entry.status !== "confirmed" || entry.method === "tidak_tahu") return "belum jelas";
+  if (entry.method === "qris") return "QRIS";
+  if (entry.method === "transfer") return "transfer";
+  return "tunai";
+}
+
+function whatIfLine(item: WhatIf): string {
+  return `Kalau "${item.sourceText}" ternyata tunai, selisih jadi ${gapPhrase(item.asTunaiSelisih)}. Kalau ternyata QRIS, selisih jadi ${gapPhrase(item.asQrisSelisih)}.`;
+}
+
+/** Facts for the closing model, written in words. No enum keys or code names. */
+export function explainUserPrompt(input: {
+  warungName: string;
+  result: CloseResult;
+  entries: Entry[];
+}): string {
+  const { warungName, result, entries } = input;
+  const lines = [
+    `Nama warung: ${warungName}.`,
+    result.countedCash == null || result.selisih == null
+      ? "Uang yang dihitung belum diisi."
+      : `Uang yang dihitung ${formatRupiah(result.countedCash)}. Seharusnya di laci ${formatRupiah(result.expectedCash)}. Selisih ${gapPhrase(result.selisih)}.`,
+  ];
+  if (result.penjualanQris > 0) {
+    lines.push(`Omzet QRIS ${formatRupiah(result.penjualanQris)}. QRIS tidak masuk laci.`);
+  }
+  lines.push("Catatan hari ini:");
+  for (const entry of entries) {
+    if (entry.amount == null) continue;
+    lines.push(
+      `- "${entry.sourceText}": ${TYPE_LABEL[entry.type]}, cara bayar ${spokenMethod(entry)}, ${formatRupiah(entry.amount)}.`,
+    );
+  }
+  if (result.whatIfs.length > 0) {
+    lines.push("Perkiraan kalau cara bayar catatan yang belum jelas beda:");
+    for (const item of result.whatIfs) lines.push(`- ${whatIfLine(item)}`);
+  }
+  lines.push("Tulis 2 atau 3 kalimat pendek. Jangan mulai dengan Kamu koma.");
+  return lines.join("\n");
 }
 
 export function matchesExplainSchema(data: unknown): data is { explanation: string } {
