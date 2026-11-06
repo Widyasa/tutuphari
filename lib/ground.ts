@@ -37,6 +37,37 @@ function groundAmount(source: string, aiAmount: number | null): number | null {
   return null;
 }
 
+function isNullableString(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
+function isNullableInt(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isInteger(value));
+}
+
+/** True only when the provider JSON matches the extract response schema. */
+export function matchesExtractSchema(data: unknown): boolean {
+  if (!data || typeof data !== "object" || !Array.isArray((data as { entries?: unknown }).entries)) {
+    return false;
+  }
+  return (data as { entries: unknown[] }).entries.every((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const record = entry as Record<string, unknown>;
+    return (
+      typeof record.type === "string" &&
+      isNullableInt(record.amount) &&
+      typeof record.method === "string" &&
+      isNullableString(record.item) &&
+      isNullableInt(record.qty) &&
+      isNullableString(record.counterparty) &&
+      typeof record.confidence === "number" &&
+      typeof record.source_text === "string" &&
+      typeof record.needs_confirmation === "boolean" &&
+      isNullableString(record.question)
+    );
+  });
+}
+
 function unwrapEntries(payload: unknown): unknown[] | null {
   if (Array.isArray(payload)) return payload;
   if (!payload || typeof payload !== "object") return null;

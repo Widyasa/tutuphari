@@ -20,22 +20,24 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 - A plain-language explanation. If the gap is not covered by the notes, it stays "belum terjelaskan".
 - Recap, CSV download, and WhatsApp text.
 - History and a kasbon ledger stored in the browser.
-- "Coba demo" loads a labeled sample day for Warung Bu Komang, Denpasar. The drawer is short Rp15.000 until the note "es jeruk 15rb" is marked tunai, then the drawer matches.
+- "Coba demo" loads a labeled sample day for Warung Bu Komang, Denpasar. The drawer is lebih Rp15.000 until the note "es jeruk 15rb" is marked tunai, then the drawer matches.
 
 ## Tech Stack
 
 - Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 - Browser `localStorage` for the open day, history, and kasbon. No login and no database.
-- Google Gemini API (`gemini-2.5-flash` by default) called only from server routes
+- Grok via the xAI API, with a Gemini fallback chain, called only from server routes
 - Vitest for the calculator and the rupiah parser
 - Intended host: Vercel free tier
 
 ## AI Implementation
 
-Gemini is used for two jobs, both on the server:
+AI runs on Grok through the xAI API (`XAI_MODEL`, default `grok-4.20-0309-non-reasoning`, structured `json_schema` with `strict: true`, no reasoning parameters). If that call fails, the server tries the Gemini chain (`GEMINI_MODELS`, or `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-flash-latest`) inside one budget of about 8 seconds. The phone stops waiting after 9 seconds and uses the local rules.
+
+Gemini and Grok are used for two jobs, both on the server:
 
 1. **Extraction.** A free-text note goes to Gemini with a JSON schema (`responseMimeType: application/json` and `responseJsonSchema`). The model must return type, amount in rupiah, method, item, quantity, counterparty, confidence, a source quote, and a confirmation question when the method or amount is unclear. The prompt forbids invented transactions and balancing entries. The server then drops any row whose source quote is not in the note, and it will not keep an amount the note cannot support.
-2. **Closing sentence.** A second call receives only the confirmed entries and the numbers the calculator already produced. If the reply mentions a rupiah figure that was not in that set, the reply is thrown away.
+2. **Closing sentence.** A second call receives every confirmed and draft entry, including its method. `tidak_tahu` and draft rows must be called "belum jelas". If the reply cites a rupiah figure that was not computed, or assigns tunai, QRIS, or transfer to a note with a different method, the reply is thrown away and the rule summary is used. `parser` is `ai` only when a provider returned schema-valid output that passes those checks. Provider and model are included only on that success.
 
 The model never decides the selisih. Expected cash is:
 
@@ -83,11 +85,17 @@ npm run build
 
 ## Deployment URL
 
-Not deployed yet. Deployment happens separately after approval. Placeholder: `https://tutuphari.vercel.app`
+https://tutuphari.vercel.app
+
+## Demo
+
+Open https://tutuphari.vercel.app on a phone-width window. There is no account. Tap **Coba demo**.
+
+The sample day is Warung Bu Komang, Denpasar, and the screen says it is synthetic. Modal awal is Rp200.000. The counted cash is already filled in as Rp270.000. Before the ambiguous note is resolved, expected cash is Rp255.000, so the drawer is **lebih Rp15.000**. The note `es jeruk 15rb` has no payment method. Choose **Tunai** and expected cash becomes Rp270.000, selisih pas. The es teh QRIS sale, Rp10.000, stays out of the drawer. If that note is marked QRIS instead, the cash gap stays lebih Rp15.000 and remains belum terjelaskan.
 
 ## Demo Account
 
-None. There is no login. Judges use **Coba demo**.
+None. There is no login. Judges use **Coba demo** on the live site.
 
 ## Known Limitations
 
@@ -126,8 +134,8 @@ Primakara University — AI Web Innovation Challenge, Bali DigiFest 2026 (Mahasi
 | UI | Tailwind CSS, shadcn/ui |
 | Runtime | Node.js |
 | Storage | Browser localStorage. No database in this MVP. |
-| Hosting | Designed for Vercel free tier. Not deployed in this repository state. |
-| AI model / API | Google Gemini, default `gemini-2.5-flash`, free tier, server-side only |
+| Hosting | Vercel, https://tutuphari.vercel.app |
+| AI model / API | Grok via xAI (`grok-4.20-0309-non-reasoning`). Gemini flash models are the fallback. Server-side only. |
 | Role of AI | Extract structured entries from free text. Write a closing sentence grounded on confirmed entries and calculator output. |
 | What AI does not do | Invent transactions, choose the selisih, or force a gap to zero |
 | Fallback | Rule-based rupiah and keyword parser, marked "Tanpa AI" |

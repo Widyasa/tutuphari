@@ -1,14 +1,14 @@
 import { closeDay } from "@/lib/calculator";
-import { allowedExplainAmounts, aiTextIsGrounded, explainClose } from "@/lib/explain";
 import {
-  callGemini,
-  DEFAULT_GEMINI_MODEL,
-  EXPLAIN_SCHEMA,
-  EXPLAIN_SYSTEM,
-  EXTRACT_SCHEMA,
-  EXTRACT_SYSTEM,
-} from "@/lib/gemini";
-import { sanitizeAiEntries } from "@/lib/ground";
+  allowedExplainAmounts,
+  aiTextIsGrounded,
+  explainClose,
+  explanationContradictsEntries,
+  matchesExplainSchema,
+} from "@/lib/explain";
+import { EXPLAIN_SCHEMA, EXPLAIN_SYSTEM, EXTRACT_SCHEMA, EXTRACT_SYSTEM } from "@/lib/gemini";
+import { matchesExtractSchema, sanitizeAiEntries } from "@/lib/ground";
+import { runStructured } from "@/lib/llm";
 import { parseNotes } from "@/lib/parser";
 import { allowRequest, type Bucket } from "@/lib/rate-limit";
 import {
@@ -21,6 +21,9 @@ import {
 export type HandlerDeps = {
   apiKey?: string;
   model?: string;
+  models?: string;
+  xaiApiKey?: string;
+  xaiModel?: string;
   fetchImpl?: typeof fetch;
   buckets: Map<string, Bucket>;
   now: number;
@@ -85,7 +88,7 @@ export async function handleExtract(
     );
   }
 
-  if (!deps.apiKey) {
+  if (!deps.apiKey && !deps.xaiApiKey) {
     return Response.json({
       parser: "rule",
       entries: ruleEntries,
@@ -94,31 +97,40 @@ export async function handleExtract(
   }
 
   try {
-    const payload = await callGemini({
-      apiKey: deps.apiKey,
-      model: deps.model || DEFAULT_GEMINI_MODEL,
+    const result = await runStructured({
+      geminiApiKey: deps.apiKey,
+      geminiModel: deps.model,
+      geminiModels: deps.models,
+      xaiApiKey: deps.xaiApiKey,
+      xaiModel: deps.xaiModel,
       system: EXTRACT_SYSTEM,
       user: `Catatan:\n<<<\n${text}\n>>>`,
       schema: EXTRACT_SCHEMA,
+      schemaName: "warung_entries",
+      accept: matchesExtractSchema,
       fetchImpl: deps.fetchImpl,
     });
-    const aiEntries = sanitizeAiEntries(text, payload);
+    if (!matchesExtractSchema(result.data)) {
+      return ruleExtract(ruleEntries, "Jawaban AI tidak sesuai skema. Dipakai pembacaan tanpa AI.");
+    }
+    const aiEntries = sanitizeAiEntries(text, result.data);
     const ruleHasMoney = ruleEntries.some((entry) => entry.amount != null);
     if (!aiEntries || (aiEntries.length === 0 && ruleHasMoney)) {
-      return Response.json({
-        parser: "rule",
-        entries: ruleEntries,
-        warning: "AI tidak menghasilkan entri yang bisa dicek. Dipakai pembacaan tanpa AI.",
-      });
+      return ruleExtract(ruleEntries, "AI tidak menghasilkan entri yang bisa dicek. Dipakai pembacaan tanpa AI.");
     }
-    return Response.json({ parser: "ai", entries: aiEntries });
-  } catch {
     return Response.json({
-      parser: "rule",
-      entries: ruleEntries,
-      warning: "AI sedang gagal. Dipakai pembacaan tanpa AI.",
+      parser: "ai",
+      entries: aiEntries,
+      provider: result.provider,
+      model: result.model,
     });
+  } catch {
+    return ruleExtract(ruleEntries, "AI sedang gagal. Dipakai pembacaan tanpa AI.");
   }
+}
+
+function ruleExtract(entries: ReturnType<typeof parseNotes>, warning: string): Response {
+  return Response.json({ parser: "rule", entries, warning });
 }
 
 function readEntries(value: unknown): Entry[] | null {
@@ -200,11 +212,11 @@ export async function handleExplain(
   const local = explainClose(result);
   const allowed = allowedExplainAmounts(result);
 
-  if (!allowRequest(deps.buckets, clientIp(request), deps.now) || !deps.apiKey) {
+  if (!allowRequest(deps.buckets, clientIp(request), deps.now) || (!deps.apiKey && !deps.xaiApiKey)) {
     return Response.json({
       parser: "rule",
       explanation: local,
-      warning: deps.apiKey
+      warning: deps.apiKey || deps.xaiApiKey
         ? "Terlalu banyak permintaan. Ringkasan tanpa AI."
         : "Kunci AI belum dipasang. Ringkasan tanpa AI.",
     });
@@ -223,42 +235,59 @@ export async function handleExplain(
     countedCash: result.countedCash,
     selisih: result.selisih,
     whatIfs: result.whatIfs,
-    confirmed: entries
-      .filter((entry) => entry.status === "confirmed")
-      .map((entry) => ({
-        type: entry.type,
-        amount: entry.amount,
-        method: entry.method,
-        item: entry.item,
-        counterparty: entry.counterparty,
-        source_text: entry.sourceText,
-      })),
+    entries: entries.map((entry) => ({
+      source_text: entry.sourceText,
+      type: entry.type,
+      amount: entry.amount,
+      method: entry.method,
+      status: entry.status,
+      item: entry.item,
+      sebutan:
+        entry.status !== "confirmed" || entry.method === "tidak_tahu" ? "belum jelas" : entry.method,
+    })),
   };
 
   try {
-    const payload = await callGemini({
-      apiKey: deps.apiKey,
-      model: deps.model || DEFAULT_GEMINI_MODEL,
+    const ai = await runStructured({
+      geminiApiKey: deps.apiKey,
+      geminiModel: deps.model,
+      geminiModels: deps.models,
+      xaiApiKey: deps.xaiApiKey,
+      xaiModel: deps.xaiModel,
       system: EXPLAIN_SYSTEM,
       user: `Data tutup hari (jangan tambah apa pun di luar ini):\n${JSON.stringify(facts)}`,
       schema: EXPLAIN_SCHEMA,
+      schemaName: "close_explanation",
+      accept: matchesExplainSchema,
       fetchImpl: deps.fetchImpl,
       maxOutputTokens: 512,
     });
-    const explanation =
-      payload && typeof payload === "object" && "explanation" in payload
-        ? (payload as { explanation?: unknown }).explanation
-        : null;
-    if (typeof explanation === "string" && aiTextIsGrounded(explanation, allowed)) {
-      return Response.json({ parser: "ai", explanation: explanation.trim() });
+    if (!matchesExplainSchema(ai.data)) {
+      return ruleExplain(local);
+    }
+    const explanation = ai.data.explanation.trim();
+    const consistent =
+      aiTextIsGrounded(explanation, allowed) &&
+      !explanationContradictsEntries(explanation, entries);
+    if (consistent) {
+      return Response.json({
+        parser: "ai",
+        explanation,
+        provider: ai.provider,
+        model: ai.model,
+      });
     }
   } catch {
     // Fall through to the deterministic paragraph.
   }
 
+  return ruleExplain(local);
+}
+
+function ruleExplain(explanation: string): Response {
   return Response.json({
     parser: "rule",
-    explanation: local,
+    explanation,
     warning: "Kalimat AI ditolak atau gagal. Dipakai ringkasan tanpa AI.",
   });
 }

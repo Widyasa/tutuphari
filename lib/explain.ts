@@ -81,6 +81,67 @@ export function allowedExplainAmounts(result: CloseResult): number[] {
   return [...new Set(values.map((value) => Math.round(value)))];
 }
 
+const METHOD_WORDS: { method: string; pattern: RegExp }[] = [
+  { method: "qris", pattern: /\bqris\b/i },
+  { method: "tunai", pattern: /\btunai\b|\bcash\b/i },
+  { method: "transfer", pattern: /\btransfer\b/i },
+];
+
+export type MethodCheckEntry = {
+  sourceText: string;
+  item: string | null;
+  method: string;
+};
+
+/**
+ * True when a sentence assigns tunai, QRIS, or transfer to a note whose
+ * recorded method is different. "Kalau/jika ..." stays allowed.
+ */
+export function explanationContradictsEntries(
+  text: string,
+  entries: MethodCheckEntry[],
+): boolean {
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  for (const sentence of sentences) {
+    const asserted = assertedMethods(sentence);
+    if (asserted.length === 0) continue;
+    for (const entry of entries) {
+      if (!sentenceRefersTo(sentence, entry)) continue;
+      if (asserted.some((method) => method !== entry.method)) return true;
+    }
+  }
+  return false;
+}
+
+function assertedMethods(sentence: string): string[] {
+  const found: string[] = [];
+  for (const { method, pattern } of METHOD_WORDS) {
+    const match = pattern.exec(sentence);
+    if (!match || match.index == null) continue;
+    const before = sentence.slice(0, match.index);
+    if (/\b(kalau|jika|bila|seandainya)\b/i.test(before)) continue;
+    found.push(method);
+  }
+  return found;
+}
+
+function sentenceRefersTo(sentence: string, entry: MethodCheckEntry): boolean {
+  const lower = sentence.toLowerCase();
+  const source = entry.sourceText.trim().toLowerCase();
+  if (source.length >= 4 && lower.includes(source)) return true;
+  const item = entry.item?.trim().toLowerCase() ?? "";
+  return item.length >= 4 && lower.includes(item);
+}
+
+export function matchesExplainSchema(data: unknown): data is { explanation: string } {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    typeof (data as { explanation?: unknown }).explanation === "string" &&
+    (data as { explanation: string }).explanation.trim().length > 0
+  );
+}
+
 /** Reject an AI paragraph that cites a rupiah figure we did not compute. */
 export function aiTextIsGrounded(text: string, allowed: number[]): boolean {
   const matches = [...text.matchAll(/rp\s*([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)/gi)];

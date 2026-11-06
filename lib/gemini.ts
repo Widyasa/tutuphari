@@ -1,4 +1,21 @@
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+export const DEFAULT_MODEL_CHAIN = [
+  "gemini-3-flash-preview",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-flash-latest",
+] as const;
+
+export const SERVER_GEMINI_BUDGET_MS = 8_000;
+
+export function resolveModelChain(input?: { model?: string; models?: string }): string[] {
+  const list = (input?.models ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (list.length > 0) return list;
+  const single = input?.model?.trim();
+  if (single) return [single];
+  return [...DEFAULT_MODEL_CHAIN];
+}
 
 export const EXTRACT_SCHEMA = {
   type: "object",
@@ -73,9 +90,12 @@ amount adalah rupiah bilangan bulat.`;
 
 export const EXPLAIN_SYSTEM = `Anda menjelaskan selisih laci warung dalam Bahasa Indonesia, 2 sampai 4 kalimat, sapaan "kamu".
 Pakai hanya angka dan entri yang diberikan. Jangan menambah transaksi.
+Setiap entri punya method. method tidak_tahu atau status draft wajib disebut "belum jelas".
+Jangan menyebut tunai, QRIS, atau transfer untuk entri itu, kecuali kalimat yang diawali kalau/jika/bila sebagai hipotesis dari data whatIfs.
+Jangan menulis bahwa catatan belum jelas "merupakan" atau "adalah" tunai, QRIS, atau transfer.
 Sebut nominal dengan awalan Rp dan pemisah ribuan titik, persis seperti di data.
 Jika selisih tidak nol dan tidak tertutup catatan yang ada, tulis "belum terjelaskan".
-QRIS tidak masuk uang laci.`;
+QRIS yang memang method-nya qris tidak masuk uang laci.`;
 
 export function readGeminiText(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -96,19 +116,101 @@ export function stripJsonFence(text: string): string {
   return (fenced?.[1] ?? text).trim();
 }
 
-export async function callGemini(options: {
+type CacheHit = {
+  expires: number;
+  provider: "xai" | "gemini";
+  model: string;
+  data: unknown;
+};
+
+const responseCache = new Map<string, CacheHit>();
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_MAX = 60;
+
+export function geminiCacheKey(parts: string[]): string {
+  return parts.join("\n").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function resetGeminiCache(): void {
+  responseCache.clear();
+}
+
+export function cacheGet(key: string, now: number): CacheHit | null {
+  const hit = responseCache.get(key);
+  if (!hit) return null;
+  if (hit.expires <= now) {
+    responseCache.delete(key);
+    return null;
+  }
+  return hit;
+}
+
+export function cacheSet(
+  key: string,
+  provider: "xai" | "gemini",
+  model: string,
+  data: unknown,
+  now: number,
+): void {
+  if (responseCache.size >= CACHE_MAX) {
+    const oldest = responseCache.keys().next().value;
+    if (oldest) responseCache.delete(oldest);
+  }
+  responseCache.set(key, { expires: now + CACHE_TTL_MS, provider, model, data });
+}
+
+class GeminiRequestError extends Error {
+  status: number;
+  thinkingRejected: boolean;
+
+  constructor(status: number, thinkingRejected: boolean) {
+    super(`Gemini ${status}`);
+    this.status = status;
+    this.thinkingRejected = thinkingRejected;
+  }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = (error as { name?: string }).name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+function shouldTryNext(error: unknown): boolean {
+  if (isTimeoutError(error)) return true;
+  if (error instanceof GeminiRequestError) {
+    return error.status === 429 || error.status === 404 || error.status === 503 || error.status >= 500;
+  }
+  return false;
+}
+
+function logModelFailure(model: string, status: string): void {
+  console.warn(`llm provider=gemini model=${model} status=${status}`);
+}
+
+async function generateOnce(options: {
   apiKey: string;
-  model?: string;
+  model: string;
   system: string;
   user: string;
   schema: object;
-  fetchImpl?: typeof fetch;
-  maxOutputTokens?: number;
+  fetchImpl: typeof fetch;
+  maxOutputTokens: number;
+  withThinking: boolean;
+  timeoutMs: number;
 }): Promise<unknown> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const model = options.model || DEFAULT_GEMINI_MODEL;
-  const response = await fetchImpl(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0,
+    maxOutputTokens: options.maxOutputTokens,
+    responseMimeType: "application/json",
+    responseJsonSchema: options.schema,
+  };
+  if (options.withThinking) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
+
+  const response = await options.fetchImpl(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(options.model)}:generateContent`,
     {
       method: "POST",
       headers: {
@@ -118,24 +220,124 @@ export async function callGemini(options: {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: options.system }] },
         contents: [{ role: "user", parts: [{ text: options.user }] }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: options.maxOutputTokens ?? 2048,
-          responseMimeType: "application/json",
-          responseJsonSchema: options.schema,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
+        generationConfig,
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(options.timeoutMs),
     },
   );
 
   if (!response.ok) {
-    throw new Error(`Gemini ${response.status}`);
+    const raw = await response.text();
+    throw new GeminiRequestError(response.status, /thinking/i.test(raw));
   }
 
   const payload: unknown = await response.json();
   const text = readGeminiText(payload);
   if (!text) throw new Error("Gemini kosong");
   return JSON.parse(stripJsonFence(text)) as unknown;
+}
+
+export async function callGemini(options: {
+  apiKey: string;
+  model?: string;
+  models?: string;
+  system: string;
+  user: string;
+  schema: object;
+  fetchImpl?: typeof fetch;
+  maxOutputTokens?: number;
+  now?: number;
+  budgetMs?: number;
+  skipCache?: boolean;
+  accept?: (data: unknown) => boolean;
+}): Promise<{ data: unknown; model: string }> {
+  const now = options.now ?? Date.now();
+  const key = geminiCacheKey([options.system, options.user]);
+  if (!options.skipCache) {
+    const cached = cacheGet(key, now);
+    if (cached) return { data: cached.data, model: cached.model };
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const models = resolveModelChain({ model: options.model, models: options.models });
+  const budgetMs = options.budgetMs ?? SERVER_GEMINI_BUDGET_MS;
+  const started = now;
+  let lastError: unknown;
+
+  for (const model of models) {
+    const remaining = budgetMs - (Date.now() - started);
+    if (remaining < 400) {
+      logModelFailure(model, "budget");
+      break;
+    }
+    try {
+      const data = await generateOnce({
+        apiKey: options.apiKey,
+        model,
+        system: options.system,
+        user: options.user,
+        schema: options.schema,
+        fetchImpl,
+        maxOutputTokens: options.maxOutputTokens ?? 2048,
+        withThinking: true,
+        timeoutMs: remaining,
+      });
+      if (options.accept && !options.accept(data)) {
+        logModelFailure(model, "schema");
+        lastError = new Error("schema");
+        continue;
+      }
+      if (!options.skipCache) cacheSet(key, "gemini", model, data, Date.now());
+      return { data, model };
+    } catch (error) {
+      if (error instanceof GeminiRequestError && error.thinkingRejected) {
+        const left = budgetMs - (Date.now() - started);
+        if (left >= 400) {
+          try {
+            const data = await generateOnce({
+              apiKey: options.apiKey,
+              model,
+              system: options.system,
+              user: options.user,
+              schema: options.schema,
+              fetchImpl,
+              maxOutputTokens: options.maxOutputTokens ?? 2048,
+              withThinking: false,
+              timeoutMs: left,
+            });
+            if (options.accept && !options.accept(data)) {
+              logModelFailure(model, "schema");
+              lastError = new Error("schema");
+              continue;
+            }
+            if (!options.skipCache) cacheSet(key, "gemini", model, data, Date.now());
+            return { data, model };
+          } catch (retryError) {
+            const retryStatus =
+              retryError instanceof GeminiRequestError
+                ? String(retryError.status)
+                : isTimeoutError(retryError)
+                  ? "timeout"
+                  : "error";
+            logModelFailure(model, retryStatus);
+            lastError = retryError;
+            if (shouldTryNext(retryError) || retryError instanceof GeminiRequestError) continue;
+          }
+        }
+      }
+      const status =
+        error instanceof GeminiRequestError
+          ? String(error.status)
+          : isTimeoutError(error)
+            ? "timeout"
+            : "error";
+      logModelFailure(model, status);
+      lastError = error;
+      if (shouldTryNext(error) || (error instanceof GeminiRequestError && error.status === 400)) {
+        continue;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Gemini gagal");
 }
