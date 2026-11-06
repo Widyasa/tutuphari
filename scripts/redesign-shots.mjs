@@ -61,7 +61,8 @@ note("home shows tunai masuk 140", homeText.includes("Rp140.000"), "missing tuna
 await shot("home");
 
 await page.getByRole("button", { name: "Kasbon", exact: true }).click();
-await page.getByText("Rp45.000").first().waitFor();
+await page.getByRole("heading", { name: "Buku kasbon" }).waitFor();
+await page.getByText("Rp10.000").first().waitFor();
 await shot("kasbon");
 
 await page.getByRole("button", { name: "Riwayat", exact: true }).click();
@@ -129,7 +130,7 @@ await click("Lanjut hitung laci");
 await click("Lihat hasil");
 await page.getByRole("heading", { name: "Hasil tutup hari" }).waitFor();
 const hasil = await page.locator("body").innerText();
-note("hasil kurang 15", hasil.includes("Rp15.000") && hasil.includes("Kurang"), hasil.slice(0, 500));
+note("hasil lebih 15", hasil.includes("Rp15.000") && hasil.includes("Lebih") && hasil.includes("Rp270.000"), hasil.slice(0, 500));
 note("hasil keeps 255", hasil.includes("Rp255.000"), "expected changed");
 await shot("hasil");
 await click("Bagikan rekap");

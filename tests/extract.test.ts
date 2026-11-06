@@ -347,9 +347,9 @@ describe("handleExplain", () => {
     expect(goodBody.parser).toBe("ai");
     expect(goodBody.provider).toBe("gemini");
     expect(goodBody.model).toBe("gemini-3-flash-preview");
-    expect(goodBody.explanation).toContain("Selisih kurang Rp15.000");
-    expect(goodBody.explanation).toContain('Catatan "jual es teh 2 10rb" cara bayarnya belum jelas.');
-    expect(goodBody.explanation).toContain("Kalau catatan ini tunai, selisih jadi kurang Rp25.000.");
+    expect(goodBody.explanation).toContain("Selisih lebih Rp15.000");
+    expect(goodBody.explanation).toContain('Catatan "es jeruk 15rb" cara bayarnya belum jelas.');
+    expect(goodBody.explanation).toContain("Kalau catatan ini tunai, selisih jadi pas Rp0.");
 
     resetGeminiCache();
     const bad = await handleExplain(request(payload, "10.2.2.3"), {
@@ -393,7 +393,7 @@ describe("handleExplain", () => {
     const body = await response.json();
     expect(called).toBe(0);
     expect(body.parser).toBe("rule");
-    expect(body.explanation.toLowerCase()).toContain("kurang");
+    expect(body.explanation.toLowerCase()).toContain("lebih");
     expect(body.provider).toBeUndefined();
     expect(body.model).toBeUndefined();
   });
@@ -401,10 +401,10 @@ describe("handleExplain", () => {
   it("rejects an explanation that assigns QRIS to a belum jelas note", async () => {
     const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
     const invented =
-      'Selisih kurang Rp15.000. Catatan "jual es teh 2 10rb" merupakan transaksi QRIS dan tidak masuk laci. Selisih ini belum terjelaskan.';
+      'Selisih lebih Rp15.000. Catatan "es jeruk 15rb" merupakan transaksi QRIS dan tidak masuk laci. Omzet QRIS Rp10.000. Selisih ini belum terjelaskan.';
     expect(
       explanationContradictsEntries(invented, [
-        { sourceText: "jual es teh 2 10rb", item: "es teh", method: "tidak_tahu" },
+        { sourceText: "es jeruk 15rb", item: "es jeruk", method: "tidak_tahu" },
       ]),
     ).toBe(true);
     const response = await handleExplain(
@@ -534,7 +534,7 @@ describe("explain validators for the live UI payload", () => {
     for (const line of lines) expect(body.explanation).toContain(line);
     const nasi = result.whatIfs.find((item) => item.entryId === "ui-entry-nasi");
     expect(nasi?.asTunaiSelisih).not.toBe(0);
-    expect(body.explanation).toContain("Selisih kurang Rp15.000");
+    expect(body.explanation).toContain("Selisih lebih Rp15.000");
     expect(body.explanation).not.toMatch(/semua tunai/i);
     const { writeFileSync } = await import("node:fs");
     writeFileSync(
@@ -636,7 +636,7 @@ describe("structured closing claims", () => {
     expect(body.parser).toBe("rule");
     expect(body.provider).toBeUndefined();
     expect(warnings.join(" ")).toContain('"reason":"hypothetical"');
-    expect(body.explanation).toContain('Catatan "jual es teh 2 10rb" cara bayarnya belum jelas.');
+    expect(body.explanation).toContain('Catatan "es jeruk 15rb" cara bayarnya belum jelas.');
     expect(body.explanation).not.toMatch(/semua tunai/i);
   });
 
@@ -646,7 +646,7 @@ describe("structured closing claims", () => {
     const cases = [
       { kind: "gap", entryId: null, amount: 0, sign: "pas" },
       { kind: "unclear_note", entryId: teh?.id, amount: 45_000, sign: null },
-      { kind: "gap", entryId: null, amount: 15_000, sign: "lebih" },
+      { kind: "gap", entryId: null, amount: 15_000, sign: "kurang" },
     ];
     for (const [index, badClaim] of cases.entries()) {
       resetGeminiCache();
@@ -685,9 +685,9 @@ describe("structured closing claims", () => {
       expect(line).toBeTruthy();
       expect(line).toContain(`selisih jadi ${item.asTunaiSelisih === 0 ? "pas Rp0" : item.asTunaiSelisih < 0 ? "kurang" : "lebih"}`);
     }
-    const teh = lines.find((line) => line.includes("jual es teh 2 10rb"));
+    const jeruk = lines.find((line) => line.includes("es jeruk 15rb"));
     const nasi = lines.find((line) => line.includes("jual nasi campur 3 x 15rb tunai"));
-    expect(teh).toContain("kurang Rp25.000");
+    expect(jeruk).toContain("pas Rp0");
     expect(nasi).not.toContain("pas Rp0");
   });
 
@@ -697,13 +697,13 @@ describe("structured closing claims", () => {
     const summary = explainClose(result);
     const prompt = explainUserPrompt({ warungName: day.warungName, result, entries: day.entries });
     const nasi = 'Catatan "jual nasi campur 3 x 15rb tunai" belum dikonfirmasi';
-    const teh = 'Catatan "jual es teh 2 10rb" cara bayarnya belum jelas';
-    const extra = 'Catatan "es teh 2 10rb" cara bayarnya belum jelas';
+    const jeruk = 'Catatan "es jeruk 15rb" cara bayarnya belum jelas';
+    const teh = 'Catatan "es teh 2 10rb" cara bayarnya belum jelas';
     expect(summary).toContain(nasi);
+    expect(summary).toContain(jeruk);
     expect(summary).toContain(teh);
-    expect(summary).toContain(extra);
     expect(summary).not.toContain('Catatan "jual nasi campur 3 x 15rb tunai" cara bayarnya belum jelas');
-    expect(summary).not.toContain('Catatan "jual es teh 2 10rb" belum dikonfirmasi');
+    expect(summary).not.toContain('Catatan "es jeruk 15rb" belum dikonfirmasi');
     expect(summary).not.toContain('Catatan "es teh 2 10rb" belum dikonfirmasi');
     expect(prompt).toContain("belum dikonfirmasi");
     expect(prompt).toContain("cara bayar belum jelas");

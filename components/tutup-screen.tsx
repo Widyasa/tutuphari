@@ -106,7 +106,7 @@ export function TutupScreen({
     <div className="grid gap-4">
       {day.isDemo && (
         <p className="rounded-xl bg-warn px-3 py-2 text-warn-ink">
-          Angka laci contoh sudah diisi Rp240.000. Boleh diubah.
+          Angka laci contoh sudah diisi Rp270.000. Boleh diubah.
         </p>
       )}
       <MoneyField

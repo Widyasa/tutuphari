@@ -29,13 +29,13 @@ describe("v3 navigation", () => {
     expect(canCountDrawer(day.entries)).toBe(false);
 
     const chosen = day.entries.map((entry) =>
-      entry.id === "demo-entry-6" ? { ...entry, method: "qris" as const, needsConfirmation: false } : entry,
+      entry.id === "demo-entry-7" ? { ...entry, method: "qris" as const, needsConfirmation: false } : entry,
     );
     expect(closeGate(chosen)).toBe("konfirmasi");
     expect(canCountDrawer(chosen)).toBe(false);
 
     const confirmed = chosen.map((entry) =>
-      entry.id === "demo-entry-6" ? { ...entry, status: "confirmed" as const } : entry,
+      entry.id === "demo-entry-7" ? { ...entry, status: "confirmed" as const } : entry,
     );
     expect(closeGate(confirmed)).toBe("hitung");
     expect(canCountDrawer(confirmed)).toBe(true);

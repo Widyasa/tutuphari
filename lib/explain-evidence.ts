@@ -82,7 +82,7 @@ export function explainEvidenceRows(): EvidenceRow[] {
     pass:
       accepted.ok &&
       lines.every((line) => accepted.explanation.includes(line)) &&
-      accepted.explanation.includes("Selisih kurang Rp15.000"),
+      accepted.explanation.includes("Selisih lebih Rp15.000"),
   });
 
   const whatIfPass = lines.length === result.whatIfs.length && new Set(lines).size === lines.length;
@@ -113,11 +113,11 @@ export function explainEvidenceRows(): EvidenceRow[] {
       },
     },
     {
-      name: "Gap sign lebih while the drawer is kurang",
+      name: "Gap sign kurang while the drawer is lebih",
       model: {
         warmth: "",
         claims: validExplainClaims(day).claims.map((claim) =>
-          claim.kind === "gap" ? { ...claim, sign: "lebih" } : claim,
+          claim.kind === "gap" ? { ...claim, sign: "kurang" } : claim,
         ),
       },
     },
@@ -134,15 +134,15 @@ export function explainEvidenceRows(): EvidenceRow[] {
 
   const summary = explainClose(result);
   const nasi = summary.includes('Catatan "jual nasi campur 3 x 15rb tunai" belum dikonfirmasi');
-  const teh = summary.includes('Catatan "jual es teh 2 10rb" cara bayarnya belum jelas');
+  const jeruk = summary.includes('Catatan "es jeruk 15rb" cara bayarnya belum jelas');
   const mixed =
     summary.includes('Catatan "jual nasi campur 3 x 15rb tunai" cara bayarnya belum jelas') ||
-    summary.includes('Catatan "jual es teh 2 10rb" belum dikonfirmasi');
+    summary.includes('Catatan "es jeruk 15rb" belum dikonfirmasi');
   rows.push({
     name: "Draft known method vs unknown method",
-    input: "ui-entry-nasi tunai draft; jual es teh 2 10rb and es teh 2 10rb method unknown",
+    input: "ui-entry-nasi tunai draft; es jeruk and es teh 2 10rb method unknown",
     output: summary,
-    pass: nasi && teh && !mixed,
+    pass: nasi && jeruk && !mixed,
   });
 
   return rows;

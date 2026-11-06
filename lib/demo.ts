@@ -47,17 +47,14 @@ export function createDemoHistory(): DayRecord[] {
 }
 
 export const DEMO_MODAL = 200_000;
-export const DEMO_COUNTED_CASH = 240_000;
-export const DEMO_COUNTED_QRIS = null;
+export const DEMO_COUNTED_CASH = 270_000;
+export const DEMO_COUNTED_QRIS = 10_000;
 
 function entry(partial: Entry): Entry {
   return partial;
 }
 
-/**
- * Synthetic day for judges, aligned with the design ledger.
- * Confirmed cash nets to Rp255.000. The es teh note stays out until chosen.
- */
+/** Synthetic day for judges. The Rp15.000 gap closes once "es jeruk" is tunai. */
 export function createDemoDay(now = new Date()): DayRecord {
   const date = todayInBali(now);
   const note = (id: string, text: string, minute: string) => ({
@@ -68,11 +65,12 @@ export function createDemoDay(now = new Date()): DayRecord {
 
   const notes = [
     note("demo-note-1", "jual nasi campur 8 x 15rb tunai", "11:05"),
-    note("demo-note-2", "pak made bayar kasbon kemarin 20rb cash", "12:10"),
-    note("demo-note-3", "bayar gas elpiji 25 ribu", "14:00"),
-    note("demo-note-4", "ambil 50rb buat rumah", "15:10"),
-    note("demo-note-5", "bu wayan kasbon kopi 10rb", "16:20"),
-    note("demo-note-6", "jual es teh 2 10rb", "17:30"),
+    note("demo-note-2", "es teh 2 qris 10rb", "11:40"),
+    note("demo-note-3", "ambil 50rb buat rumah", "13:10"),
+    note("demo-note-4", "bayar gas elpiji 25 ribu", "14:00"),
+    note("demo-note-5", "bu wayan kasbon kopi 10rb", "15:20"),
+    note("demo-note-6", "pak made bayar kasbon kemarin 20rb cash", "16:05"),
+    note("demo-note-7", "es jeruk 15rb", "17:30"),
   ];
 
   const entries: Entry[] = [
@@ -95,13 +93,13 @@ export function createDemoDay(now = new Date()): DayRecord {
     entry({
       id: "demo-entry-2",
       noteId: "demo-note-2",
-      type: "kasbon_bayar",
-      amount: 20_000,
-      method: "tunai",
-      item: null,
-      qty: null,
-      counterparty: "Pak Made",
-      confidence: 0.92,
+      type: "penjualan",
+      amount: 10_000,
+      method: "qris",
+      item: "es teh",
+      qty: 2,
+      counterparty: null,
+      confidence: 0.94,
       sourceText: notes[1].text,
       needsConfirmation: false,
       question: null,
@@ -111,13 +109,13 @@ export function createDemoDay(now = new Date()): DayRecord {
     entry({
       id: "demo-entry-3",
       noteId: "demo-note-3",
-      type: "pengeluaran_usaha",
-      amount: 25_000,
+      type: "ambil_pribadi",
+      amount: 50_000,
       method: "tunai",
-      item: "gas elpiji",
+      item: null,
       qty: null,
       counterparty: null,
-      confidence: 0.9,
+      confidence: 0.93,
       sourceText: notes[2].text,
       needsConfirmation: false,
       question: null,
@@ -127,13 +125,13 @@ export function createDemoDay(now = new Date()): DayRecord {
     entry({
       id: "demo-entry-4",
       noteId: "demo-note-4",
-      type: "ambil_pribadi",
-      amount: 50_000,
+      type: "pengeluaran_usaha",
+      amount: 25_000,
       method: "tunai",
-      item: null,
+      item: "gas elpiji",
       qty: null,
       counterparty: null,
-      confidence: 0.93,
+      confidence: 0.9,
       sourceText: notes[3].text,
       needsConfirmation: false,
       question: null,
@@ -159,14 +157,30 @@ export function createDemoDay(now = new Date()): DayRecord {
     entry({
       id: "demo-entry-6",
       noteId: "demo-note-6",
+      type: "kasbon_bayar",
+      amount: 20_000,
+      method: "tunai",
+      item: null,
+      qty: null,
+      counterparty: "Pak Made",
+      confidence: 0.92,
+      sourceText: notes[5].text,
+      needsConfirmation: false,
+      question: null,
+      parser: "demo",
+      status: "confirmed",
+    }),
+    entry({
+      id: "demo-entry-7",
+      noteId: "demo-note-7",
       type: "penjualan",
-      amount: 10_000,
+      amount: 15_000,
       method: "tidak_tahu",
-      item: "es teh",
-      qty: 2,
+      item: "es jeruk",
+      qty: null,
       counterparty: null,
       confidence: 0.45,
-      sourceText: notes[5].text,
+      sourceText: notes[6].text,
       needsConfirmation: true,
       question: "Ini tunai atau QRIS?",
       parser: "demo",
@@ -189,13 +203,8 @@ export function createDemoDay(now = new Date()): DayRecord {
     priorKasbon: [
       {
         person: "Pak Made",
-        amount: 35_000,
-        note: "Saldo sebelum pelunasan hari ini (contoh)",
-      },
-      {
-        person: "Bu Komang",
         amount: 20_000,
-        note: "Kasbon belum dibayar (contoh)",
+        note: "Kasbon kemarin (contoh)",
       },
     ],
   };
