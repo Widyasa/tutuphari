@@ -6,6 +6,9 @@ export const DEFAULT_MODEL_CHAIN = [
 
 export const SERVER_GEMINI_BUDGET_MS = 8_000;
 
+/** A multi-line extract was aborted at the 8s shared cap while the provider was still working. */
+export const EXTRACT_SERVER_BUDGET_MS = 15_000;
+
 export function resolveModelChain(input?: { model?: string; models?: string }): string[] {
   const list = (input?.models ?? "")
     .split(",")

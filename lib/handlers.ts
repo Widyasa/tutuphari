@@ -1,6 +1,12 @@
 import { closeDay } from "@/lib/calculator";
 import { assessExplanation, explainClose, explainUserPrompt, matchesExplainSchema } from "@/lib/explain";
-import { EXPLAIN_SCHEMA, EXPLAIN_SYSTEM, EXTRACT_SCHEMA, EXTRACT_SYSTEM } from "@/lib/gemini";
+import {
+  EXPLAIN_SCHEMA,
+  EXPLAIN_SYSTEM,
+  EXTRACT_SCHEMA,
+  EXTRACT_SERVER_BUDGET_MS,
+  EXTRACT_SYSTEM,
+} from "@/lib/gemini";
 import { matchesExtractSchema, sanitizeAiEntries } from "@/lib/ground";
 import { runStructured } from "@/lib/llm";
 import { parseNotes } from "@/lib/parser";
@@ -21,6 +27,7 @@ export type HandlerDeps = {
   fetchImpl?: typeof fetch;
   buckets: Map<string, Bucket>;
   now: number;
+  budgetMs?: number;
 };
 
 const MAX_TEXT = 8_000;
@@ -103,6 +110,7 @@ export async function handleExtract(
       schemaName: "warung_entries",
       accept: matchesExtractSchema,
       fetchImpl: deps.fetchImpl,
+      budgetMs: deps.budgetMs ?? EXTRACT_SERVER_BUDGET_MS,
     });
     if (!matchesExtractSchema(result.data)) {
       return ruleExtract(ruleEntries, "Jawaban AI tidak sesuai skema. Dipakai pembacaan tanpa AI.");
