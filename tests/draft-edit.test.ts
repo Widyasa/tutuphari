@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { closeDay } from "@/lib/calculator";
 import { createDay } from "@/lib/day";
 import { draftConfirmBlock, normalizeDraftEdit } from "@/lib/draft-edit";
 import type { Entry } from "@/lib/types";
@@ -22,7 +23,7 @@ function entry(partial: Partial<Entry> & Pick<Entry, "type" | "method">): Entry 
 }
 
 describe("draft editing", () => {
-  it("drops a name and a payment method that the chosen type does not show", () => {
+  it("keeps the payment method when only the amount is edited", () => {
     expect(normalizeDraftEdit({
       type: "penjualan",
       amount: 15_000,
@@ -30,17 +31,48 @@ describe("draft editing", () => {
       name: "Bu Qatest",
     })).toEqual({ type: "penjualan", amount: 15_000, method: "qris", counterparty: null });
     expect(normalizeDraftEdit({
+      type: "setor",
+      amount: 60_000,
+      method: "qris",
+      name: "",
+    }).method).toBe("qris");
+    expect(normalizeDraftEdit({
+      type: "tarik",
+      amount: 40_000,
+      method: "transfer",
+      name: "",
+    }).method).toBe("transfer");
+    expect(normalizeDraftEdit({
       type: "lainnya",
       amount: 15_000,
       method: "tunai",
       name: "Bu Qatest",
-    }).method).toBe("tidak_tahu");
+    }).method).toBe("tunai");
     expect(normalizeDraftEdit({
       type: "kasbon_bayar",
       amount: 20_000,
       method: "tunai",
       name: "  Bu   Qatest ",
     }).counterparty).toBe("Bu Qatest");
+  });
+
+  it("does not put a non-cash setor or tarik into the drawer after the amount changes", () => {
+    const setor = normalizeDraftEdit({ type: "setor", amount: 60_000, method: "qris", name: "" });
+    const tarik = normalizeDraftEdit({ type: "tarik", amount: 40_000, method: "transfer", name: "" });
+    const other = normalizeDraftEdit({ type: "lainnya", amount: 15_000, method: "tunai", name: "" });
+    const result = closeDay({
+      modalAwal: 200_000,
+      countedCash: 200_000,
+      countedQris: null,
+      entries: [
+        entry({ id: "setor", type: setor.type, method: setor.method, amount: setor.amount, status: "confirmed" }),
+        entry({ id: "tarik", type: tarik.type, method: tarik.method, amount: tarik.amount, status: "confirmed" }),
+        entry({ id: "other", type: other.type, method: other.method, amount: other.amount, status: "draft" }),
+      ],
+    });
+    expect(result.setorTunai).toBe(0);
+    expect(result.tarikTunai).toBe(0);
+    expect(result.expectedCash).toBe(200_000);
   });
 
   it("refuses an incomplete draft and an over-debt payment without confirming it", () => {

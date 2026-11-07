@@ -15,6 +15,7 @@ import { OpenScreen } from "@/components/open-screen";
 import { RiwayatScreen } from "@/components/riwayat-screen";
 import { TutupScreen } from "@/components/tutup-screen";
 import { closeDay } from "@/lib/calculator";
+import { CASH_DISCLAIMER } from "@/lib/copy";
 import { extractNote } from "@/lib/client-api";
 import { createDay } from "@/lib/day";
 import { formatLongDate } from "@/lib/dates";
@@ -164,7 +165,7 @@ export function TutupHariApp() {
             ? ` · ${result.verdict === "pas" ? "pas" : result.verdict === "kurang" ? "kurang" : "lebih"} ${formatRupiah(Math.abs(result.selisih))}`
             : ""}
         </p>
-        <p className="mt-1 text-sm">Bukan laporan resmi. AI bisa salah.</p>
+        <p className="mt-1 text-sm">{CASH_DISCLAIMER}</p>
         {day.isDemo && (
           <p className="mt-2 rounded-lg bg-warn px-3 py-2 text-sm font-bold text-warn-ink">
             CONTOH · Warung Bu Komang, Denpasar. Bukan transaksi sungguhan.

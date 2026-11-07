@@ -6,6 +6,7 @@ import { MoneyField } from "@/components/money-field";
 import { Receipt } from "@/components/receipt";
 import { closeDay } from "@/lib/calculator";
 import { explainDay } from "@/lib/client-api";
+import { CASH_DISCLAIMER } from "@/lib/copy";
 import { explainClose } from "@/lib/explain";
 import { toCsv, toWhatsApp } from "@/lib/export";
 import type { DayRecord } from "@/lib/types";
@@ -159,7 +160,7 @@ export function TutupScreen({
         </Button>
       </div>
       <p className="text-sm">
-        Alat bantu cek kas, bukan laporan keuangan atau pajak. AI bisa salah — selalu dicek sendiri.
+        {CASH_DISCLAIMER}
       </p>
     </div>
   );
