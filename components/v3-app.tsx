@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { closeDay, cashSign } from "@/lib/calculator";
 import { extractNote } from "@/lib/client-api";
 import { createDay } from "@/lib/day";
+import { draftConfirmBlock, draftShowsMethod, draftShowsName, normalizeDraftEdit } from "@/lib/draft-edit";
 import { formatMediumDate } from "@/lib/dates";
 import { createDemoDay, createDemoHistory } from "@/lib/demo";
 import { explainClose } from "@/lib/explain";
@@ -42,10 +43,10 @@ import {
   type Step,
 } from "@/lib/flow";
 import { createId } from "@/lib/id";
-import { assessRepayment, draftPaymentAlert, kasbonBook, personBalance } from "@/lib/kasbon";
+import { assessRepayment, kasbonBook } from "@/lib/kasbon";
 import { formatRupiah, parseMoneyInput } from "@/lib/rupiah";
 import { emptyStore } from "@/lib/storage";
-import { METHOD_LABEL, TYPE_LABEL, type DayRecord, type Entry, type Store } from "@/lib/types";
+import { isEntryType, isMethod, METHOD_LABEL, TYPE_LABEL, type DayRecord, type Entry, type EntryType, type Method, type Store } from "@/lib/types";
 import { useBook } from "@/lib/use-book";
 import { cn } from "@/lib/utils";
 
@@ -315,44 +316,60 @@ export function V3App() {
     }));
   }
 
-  function confirmEntry(id: string) {
-    if (!day) return;
-    const entry = day.entries.find((item) => item.id === id);
-    if (entry?.type === "kasbon_bayar") {
-      if (entry.amount == null || entry.amount <= 0 || !entry.counterparty) return;
-      const decision = assessRepayment({
-        days: [day, ...store.history.filter((item) => item.id !== day.id)],
-        person: entry.counterparty,
-        amount: entry.amount,
-      });
-      if (!decision.ok) return;
-    }
-    updateActive((current) => ({
-      ...current,
-      entries: current.entries.map((item) =>
-        item.id === id
-          ? { ...item, status: "confirmed", needsConfirmation: false, question: null }
-          : item,
-      ),
-    }));
+  function ledgerDays() {
+    if (!day) return [];
+    return [day, ...store.history.filter((item) => item.id !== day.id)];
   }
 
-  function updateDraftAmount(id: string, amount: number) {
-    updateActive((current) => ({
-      ...current,
-      entries: current.entries.map((entry) =>
-        entry.id === id && entry.status !== "confirmed" && entry.type === "kasbon_bayar"
-          ? { ...entry, amount, status: "draft" as const, needsConfirmation: false, question: null }
-          : entry,
-      ),
-    }));
+  function confirmEntry(id: string) {
+    if (!day || day.closedAt) return;
+    const entry = day.entries.find((item) => item.id === id);
+    if (!entry || entry.status === "confirmed") return;
+    if (draftConfirmBlock(entry, ledgerDays())) return;
+    updateActive((current) => {
+      if (current.closedAt) return current;
+      return {
+        ...current,
+        entries: current.entries.map((item) =>
+          item.id === id
+            ? { ...item, status: "confirmed" as const, needsConfirmation: false, question: null }
+            : item,
+        ),
+      };
+    });
+  }
+
+  function updateDraft(id: string, patch: ReturnType<typeof normalizeDraftEdit>) {
+    if (!day || day.closedAt) return;
+    updateActive((current) => {
+      if (current.closedAt) return current;
+      return {
+        ...current,
+        entries: current.entries.map((entry) =>
+          entry.id === id && entry.status !== "confirmed"
+            ? {
+                ...entry,
+                ...patch,
+                sourceText: entry.sourceText,
+                status: "draft" as const,
+                needsConfirmation: false,
+                question: null,
+              }
+            : entry,
+        ),
+      };
+    });
   }
 
   function deleteDraft(id: string) {
-    updateActive((current) => ({
-      ...current,
-      entries: current.entries.filter((entry) => !(entry.id === id && entry.status !== "confirmed")),
-    }));
+    if (!day || day.closedAt) return;
+    updateActive((current) => {
+      if (current.closedAt) return current;
+      return {
+        ...current,
+        entries: current.entries.filter((entry) => !(entry.id === id && entry.status !== "confirmed")),
+      };
+    });
     window.setTimeout(() => document.getElementById("cek-heading")?.focus(), 0);
   }
 
@@ -564,6 +581,10 @@ export function V3App() {
               entry={ambiguShown}
               expected={result.expectedCash}
               onChoose={(method) => ambiguShown && chooseMethod(ambiguShown.id, method)}
+              blocked={ambiguShown ? draftConfirmBlock(ambiguShown, ledgerDays()) : null}
+              onConfirm={confirmEntry}
+              onUpdate={updateDraft}
+              onDelete={deleteDraft}
             />
           )}
           {flow === "konfirmasi" && (
@@ -575,37 +596,9 @@ export function V3App() {
               keluar={tunaiKeluar}
               onConfirm={confirmEntry}
               onChoose={chooseMethod}
-              onUpdateAmount={updateDraftAmount}
+              onUpdate={updateDraft}
               onDelete={deleteDraft}
-              reviewDraft={(entry) => {
-                const ledger = [day, ...store.history.filter((item) => item.id !== day.id)];
-                if (!entry.counterparty || entry.amount == null || entry.amount <= 0) {
-                  return {
-                    outstanding: 0,
-                    alert: {
-                      title: "Belum bisa dikonfirmasi" as const,
-                      detail: "Jumlah atau nama belum lengkap. Draft belum masuk perhitungan.",
-                    },
-                  };
-                }
-                const balance = personBalance(ledger, entry.counterparty);
-                const decision = assessRepayment({
-                  days: ledger,
-                  person: entry.counterparty,
-                  amount: entry.amount,
-                });
-                return {
-                  outstanding: balance.outstanding,
-                  alert: decision.ok
-                    ? null
-                    : draftPaymentAlert({
-                        person: entry.counterparty,
-                        amount: entry.amount,
-                        knownPerson: balance.knownPerson,
-                        decision,
-                      }),
-                };
-              }}
+              blockFor={(entry) => draftConfirmBlock(entry, ledgerDays())}
             />
           )}
           {flow === "hitung" && (
@@ -1046,10 +1039,18 @@ function AmbiguPane({
   entry,
   expected,
   onChoose,
+  blocked,
+  onConfirm,
+  onUpdate,
+  onDelete,
 }: {
   entry: Entry | null;
   expected: number;
+  blocked: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
   onChoose: (method: "tunai" | "qris") => void;
+  onConfirm: (id: string) => void;
+  onUpdate: (id: string, patch: ReturnType<typeof normalizeDraftEdit>) => void;
+  onDelete: (id: string) => void;
 }) {
   if (!entry || entry.amount == null) {
     return <p>Tidak ada catatan yang perlu dipilih.</p>;
@@ -1069,6 +1070,7 @@ function AmbiguPane({
         <p className="font-medium">“{entry.sourceText}”</p>
         <p className="money mt-2 text-3xl font-bold">{formatRupiah(entry.amount)}</p>
         <MethodChoice method={chosen} onMethod={onChoose} />
+        <DraftCardTools entry={entry} blocked={blocked} onConfirm={onConfirm} onUpdate={onUpdate} onDelete={onDelete} />
       </div>
     </div>
   );
@@ -1113,50 +1115,61 @@ function MethodChoice({
   );
 }
 
-function PaymentDraftTools({
+function DraftCardTools({
   entry,
-  outstanding,
-  alert,
+  blocked,
   onConfirm,
-  onUpdateAmount,
+  onUpdate,
   onDelete,
 }: {
   entry: Entry;
-  outstanding: number;
-  alert: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
+  blocked: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
   onConfirm: (id: string) => void;
-  onUpdateAmount: (id: string, amount: number) => void;
+  onUpdate: (id: string, patch: ReturnType<typeof normalizeDraftEdit>) => void;
   onDelete: (id: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(entry.amount == null ? "" : formatRupiah(entry.amount));
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [type, setType] = useState<EntryType>(entry.type);
+  const [amountText, setAmountText] = useState(entry.amount == null ? "" : formatRupiah(entry.amount));
+  const [method, setMethod] = useState<Method>(entry.method === "transfer" ? "transfer" : entry.method);
+  const [name, setName] = useState(entry.counterparty ?? "");
   const alertRef = useRef<HTMLDivElement>(null);
-  const amountRef = useRef<HTMLInputElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const alertId = `draft-alert-${entry.id}`;
-  const amountId = `draft-amount-${entry.id}`;
-  const remainId = `draft-remain-${entry.id}`;
+  const showMethod = draftShowsMethod(type);
+  const showName = draftShowsName(type);
+  const typeLabel = type === "lainnya" ? "Belum diketahui" : TYPE_LABEL[type];
 
-  useEffect(() => {
-    if (editing) amountRef.current?.focus();
-  }, [editing]);
+  function beginEdit() {
+    setType(entry.type);
+    setAmountText(entry.amount == null ? "" : formatRupiah(entry.amount));
+    setMethod(entry.method);
+    setName(entry.counterparty ?? "");
+    setSavedNote(null);
+    setEditing(true);
+  }
 
   function cancelEdit() {
-    setText(entry.amount == null ? "" : formatRupiah(entry.amount));
     setEditing(false);
   }
 
   function saveEdit() {
-    const amount = parseMoneyInput(text);
+    const amount = parseMoneyInput(amountText);
     if (amount == null || amount <= 0) return;
-    onUpdateAmount(entry.id, amount);
+    onUpdate(entry.id, normalizeDraftEdit({ type, amount, method, name }));
     setEditing(false);
+    setSavedNote("Perubahan disimpan sebagai draft");
   }
 
+  const fieldError = editing && (parseMoneyInput(amountText) == null);
   return (
     <div>
-      {alert && (
+      <p className="mt-2 text-sm text-muted-foreground">
+        <span className="font-semibold text-foreground">Catatan asli.</span> “{entry.sourceText}”
+      </p>
+      {blocked && !editing && (
         <div
           id={alertId}
           ref={alertRef}
@@ -1164,31 +1177,73 @@ function PaymentDraftTools({
           tabIndex={-1}
           className="mt-3 rounded-lg border border-[#991B1B] bg-[#FEF2F2] p-3 text-sm text-[#991B1B] outline-none focus-visible:ring-2 focus-visible:ring-[#991B1B]"
         >
-          <p className="font-semibold">{alert.title}</p>
-          <p>{alert.detail}</p>
+          <p className="font-semibold">{blocked.title}</p>
+          <p>{blocked.detail}</p>
         </div>
       )}
+      {savedNote && !editing && (
+        <p className="mt-3 text-sm font-semibold text-[#166534]" role="status">{savedNote}</p>
+      )}
       {editing ? (
-        <div className="mt-3 grid gap-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="lg:col-span-1">
+            <Label htmlFor={`draft-type-${entry.id}`}>Jenis catatan</Label>
+            <select
+              id={`draft-type-${entry.id}`}
+              className="mt-2 h-12 w-full rounded-lg border border-border bg-background px-3"
+              value={type}
+              onChange={(event) => {
+                if (isEntryType(event.target.value)) setType(event.target.value);
+              }}
+            >
+              {(Object.keys(TYPE_LABEL) as EntryType[]).map((value) => (
+                <option key={value} value={value}>{value === "lainnya" ? "Belum diketahui" : TYPE_LABEL[value]}</option>
+              ))}
+            </select>
+          </div>
           <div>
-            <Label htmlFor={amountId}>Jumlah pembayaran</Label>
+            <Label htmlFor={`draft-amount-${entry.id}`}>Jumlah</Label>
             <Input
-              id={amountId}
-              ref={amountRef}
+              id={`draft-amount-${entry.id}`}
               inputMode="numeric"
               className="money mt-2 h-12"
-              value={text}
-              aria-invalid={alert ? true : undefined}
-              aria-describedby={alert ? alertId : undefined}
-              onChange={(event) => setText(event.target.value)}
+              value={amountText}
+              aria-invalid={fieldError ? true : undefined}
+              aria-describedby={blocked ? alertId : undefined}
+              onChange={(event) => setAmountText(event.target.value)}
             />
           </div>
-          <div>
-            <Label htmlFor={remainId}>Sisa utang</Label>
-            <Input id={remainId} readOnly className="mt-2 h-12" value={formatRupiah(outstanding)} />
-          </div>
-          <div className="flex flex-col gap-2 lg:flex-row">
-            <Button type="button" className="h-12 lg:flex-1" disabled={parseMoneyInput(text) == null} onClick={saveEdit}>
+          {showMethod && (
+            <div>
+              <Label htmlFor={`draft-method-${entry.id}`}>Cara bayar</Label>
+              <select
+                id={`draft-method-${entry.id}`}
+                className="mt-2 h-12 w-full rounded-lg border border-border bg-background px-3"
+                value={method === "transfer" ? "transfer" : method}
+                onChange={(event) => {
+                  if (isMethod(event.target.value)) setMethod(event.target.value);
+                }}
+              >
+                <option value="tunai">Tunai</option>
+                <option value="qris">QRIS</option>
+                <option value="tidak_tahu">Belum diketahui</option>
+                {method === "transfer" && <option value="transfer">Transfer</option>}
+              </select>
+            </div>
+          )}
+          {showName && (
+            <div>
+              <Label htmlFor={`draft-name-${entry.id}`}>Nama</Label>
+              <Input
+                id={`draft-name-${entry.id}`}
+                className="mt-2 h-12"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
+          )}
+          <div className="flex flex-col gap-2 lg:col-span-2 lg:flex-row">
+            <Button type="button" className="h-12 lg:flex-1" disabled={parseMoneyInput(amountText) == null} onClick={saveEdit}>
               Simpan perubahan
             </Button>
             <Button type="button" variant="outline" className="h-12 lg:flex-1" onClick={cancelEdit}>
@@ -1198,16 +1253,8 @@ function PaymentDraftTools({
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-12 lg:flex-1"
-            onClick={() => {
-              setText(entry.amount == null ? "" : formatRupiah(entry.amount));
-              setEditing(true);
-            }}
-          >
-            Ubah jumlah
+          <Button type="button" variant="outline" className="h-12 lg:flex-1" onClick={beginEdit}>
+            Ubah catatan
           </Button>
           <Button
             ref={deleteRef}
@@ -1221,19 +1268,21 @@ function PaymentDraftTools({
           </Button>
         </div>
       )}
-      <Button
-        type="button"
-        variant="outline"
-        className="mt-3 h-12 w-full"
-        aria-invalid={alert ? true : undefined}
-        aria-describedby={alert ? alertId : undefined}
-        onClick={() => {
-          onConfirm(entry.id);
-          if (alert) alertRef.current?.focus();
-        }}
-      >
-        Konfirmasi catatan ini
-      </Button>
+      {!editing && (
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-3 h-12 w-full"
+          aria-invalid={blocked ? true : undefined}
+          aria-describedby={blocked ? alertId : undefined}
+          onClick={() => {
+            onConfirm(entry.id);
+            if (blocked) alertRef.current?.focus();
+          }}
+        >
+          Konfirmasi catatan ini
+        </Button>
+      )}
       <Dialog
         open={deleteOpen}
         onOpenChange={(open) => {
@@ -1243,21 +1292,12 @@ function PaymentDraftTools({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Hapus draft {formatRupiah(entry.amount ?? 0)}?</DialogTitle>
-            <DialogDescription>Catatan lain dan pembayaran sah tetap tersimpan.</DialogDescription>
+            <DialogTitle>Hapus draft {typeLabel} {formatRupiah(entry.amount ?? 0)}?</DialogTitle>
+            <DialogDescription>Catatan lain tetap tersimpan.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>
-              Batal
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => {
-                setDeleteOpen(false);
-                onDelete(entry.id);
-              }}
-            >
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>Batal</Button>
+            <Button type="button" variant="destructive" onClick={() => { setDeleteOpen(false); onDelete(entry.id); }}>
               Hapus draft
             </Button>
           </DialogFooter>
@@ -1275,9 +1315,9 @@ function KonfirmasiPane({
   keluar,
   onConfirm,
   onChoose,
-  onUpdateAmount,
+  onUpdate,
   onDelete,
-  reviewDraft,
+  blockFor,
 }: {
   day: DayRecord;
   expected: number;
@@ -1286,12 +1326,9 @@ function KonfirmasiPane({
   keluar: number;
   onConfirm: (id: string) => void;
   onChoose: (id: string, method: "tunai" | "qris") => void;
-  onUpdateAmount: (id: string, amount: number) => void;
+  onUpdate: (id: string, patch: ReturnType<typeof normalizeDraftEdit>) => void;
   onDelete: (id: string) => void;
-  reviewDraft: (entry: Entry) => {
-    outstanding: number;
-    alert: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
-  };
+  blockFor: (entry: Entry) => { title: "Belum bisa dikonfirmasi"; detail: string } | null;
 }) {
   return (
     <div>
@@ -1313,24 +1350,20 @@ function KonfirmasiPane({
                 {entry.status === "confirmed" && <span className="text-xs text-[#166534]">Sudah dikonfirmasi</span>}
               </div>
               <p className="money mt-1 text-2xl font-bold">{negative ? `−${formatRupiah(entry.amount ?? 0)}` : formatRupiah(entry.amount ?? 0)}</p>
-              <p className="text-sm text-muted-foreground">“{entry.sourceText}”</p>
+              {(entry.status === "confirmed" || day.closedAt) && (
+                <p className="text-sm text-muted-foreground">“{entry.sourceText}”</p>
+              )}
               {entry.method === "tidak_tahu" && (
                 <MethodChoice method={null} onMethod={(method) => onChoose(entry.id, method)} />
               )}
-              {entry.status !== "confirmed" && entry.method !== "tidak_tahu" && entry.type === "kasbon_bayar" && (
-                <PaymentDraftTools
+              {entry.status !== "confirmed" && !day.closedAt && (
+                <DraftCardTools
                   entry={entry}
-                  outstanding={reviewDraft(entry).outstanding}
-                  alert={reviewDraft(entry).alert}
+                  blocked={blockFor(entry)}
                   onConfirm={onConfirm}
-                  onUpdateAmount={onUpdateAmount}
+                  onUpdate={onUpdate}
                   onDelete={onDelete}
                 />
-              )}
-              {entry.status !== "confirmed" && entry.method !== "tidak_tahu" && entry.type !== "kasbon_bayar" && (
-                <Button type="button" variant="outline" className="mt-3 h-12 w-full" onClick={() => onConfirm(entry.id)}>
-                  Konfirmasi catatan ini
-                </Button>
               )}
             </li>
           );
