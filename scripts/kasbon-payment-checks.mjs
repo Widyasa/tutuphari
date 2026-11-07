@@ -165,10 +165,12 @@ async function run(viewport) {
   await page.waitForTimeout(300);
   store = await dump(page, `${tag}-confirm-reject`);
   const drafted = store.active.entries.find((entry) => entry.sourceText === "bu qatest bayar kasbon 5rb tunai");
-  const notice = await page.locator("p[aria-live=polite]").innerText();
+  const alert = page.locator("[role=alert]").filter({ hasText: "Draft belum masuk perhitungan" });
+  await alert.waitFor();
+  const notice = await alert.innerText();
   await page.screenshot({ path: `${out}/screenshots/${tag}-confirm-reject.png` });
   note(`${tag} confirm stays draft`, drafted?.status === "draft" && drafted?.type === "kasbon_bayar", JSON.stringify(drafted));
-  note(`${tag} confirm message`, notice.includes("tidak punya utang aktif"), notice);
+  note(`${tag} confirm message`, notice.includes("sudah lunas") && notice.includes("Draft belum masuk perhitungan"), notice);
   text = await home();
   note(`${tag} confirm expected`, rupiahAfter(text, "Uang laci seharusnya") === "Rp200.000", rupiahAfter(text, "Uang laci seharusnya"));
   await page.reload({ waitUntil: "networkidle" });

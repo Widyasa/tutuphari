@@ -9,6 +9,7 @@ import {
   Home,
   QrCode,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,7 +42,7 @@ import {
   type Step,
 } from "@/lib/flow";
 import { createId } from "@/lib/id";
-import { assessRepayment, kasbonBook } from "@/lib/kasbon";
+import { assessRepayment, draftPaymentAlert, kasbonBook, personBalance } from "@/lib/kasbon";
 import { formatRupiah, parseMoneyInput } from "@/lib/rupiah";
 import { emptyStore } from "@/lib/storage";
 import { METHOD_LABEL, TYPE_LABEL, type DayRecord, type Entry, type Store } from "@/lib/types";
@@ -318,19 +319,13 @@ export function V3App() {
     if (!day) return;
     const entry = day.entries.find((item) => item.id === id);
     if (entry?.type === "kasbon_bayar") {
-      if (entry.amount == null || entry.amount <= 0 || !entry.counterparty) {
-        setNotice("Pembayaran kasbon butuh nama orang dan jumlah. Pembayaran tidak dicatat.");
-        return;
-      }
+      if (entry.amount == null || entry.amount <= 0 || !entry.counterparty) return;
       const decision = assessRepayment({
         days: [day, ...store.history.filter((item) => item.id !== day.id)],
         person: entry.counterparty,
         amount: entry.amount,
       });
-      if (!decision.ok) {
-        setNotice(decision.message);
-        return;
-      }
+      if (!decision.ok) return;
     }
     updateActive((current) => ({
       ...current,
@@ -340,6 +335,25 @@ export function V3App() {
           : item,
       ),
     }));
+  }
+
+  function updateDraftAmount(id: string, amount: number) {
+    updateActive((current) => ({
+      ...current,
+      entries: current.entries.map((entry) =>
+        entry.id === id && entry.status !== "confirmed" && entry.type === "kasbon_bayar"
+          ? { ...entry, amount, status: "draft" as const, needsConfirmation: false, question: null }
+          : entry,
+      ),
+    }));
+  }
+
+  function deleteDraft(id: string) {
+    updateActive((current) => ({
+      ...current,
+      entries: current.entries.filter((entry) => !(entry.id === id && entry.status !== "confirmed")),
+    }));
+    window.setTimeout(() => document.getElementById("cek-heading")?.focus(), 0);
   }
 
   function saveManual() {
@@ -561,6 +575,37 @@ export function V3App() {
               keluar={tunaiKeluar}
               onConfirm={confirmEntry}
               onChoose={chooseMethod}
+              onUpdateAmount={updateDraftAmount}
+              onDelete={deleteDraft}
+              reviewDraft={(entry) => {
+                const ledger = [day, ...store.history.filter((item) => item.id !== day.id)];
+                if (!entry.counterparty || entry.amount == null || entry.amount <= 0) {
+                  return {
+                    outstanding: 0,
+                    alert: {
+                      title: "Belum bisa dikonfirmasi" as const,
+                      detail: "Jumlah atau nama belum lengkap. Draft belum masuk perhitungan.",
+                    },
+                  };
+                }
+                const balance = personBalance(ledger, entry.counterparty);
+                const decision = assessRepayment({
+                  days: ledger,
+                  person: entry.counterparty,
+                  amount: entry.amount,
+                });
+                return {
+                  outstanding: balance.outstanding,
+                  alert: decision.ok
+                    ? null
+                    : draftPaymentAlert({
+                        person: entry.counterparty,
+                        amount: entry.amount,
+                        knownPerson: balance.knownPerson,
+                        decision,
+                      }),
+                };
+              }}
             />
           )}
           {flow === "hitung" && (
@@ -1068,6 +1113,160 @@ function MethodChoice({
   );
 }
 
+function PaymentDraftTools({
+  entry,
+  outstanding,
+  alert,
+  onConfirm,
+  onUpdateAmount,
+  onDelete,
+}: {
+  entry: Entry;
+  outstanding: number;
+  alert: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
+  onConfirm: (id: string) => void;
+  onUpdateAmount: (id: string, amount: number) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(entry.amount == null ? "" : formatRupiah(entry.amount));
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const alertRef = useRef<HTMLDivElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const alertId = `draft-alert-${entry.id}`;
+  const amountId = `draft-amount-${entry.id}`;
+  const remainId = `draft-remain-${entry.id}`;
+
+  useEffect(() => {
+    if (editing) amountRef.current?.focus();
+  }, [editing]);
+
+  function cancelEdit() {
+    setText(entry.amount == null ? "" : formatRupiah(entry.amount));
+    setEditing(false);
+  }
+
+  function saveEdit() {
+    const amount = parseMoneyInput(text);
+    if (amount == null || amount <= 0) return;
+    onUpdateAmount(entry.id, amount);
+    setEditing(false);
+  }
+
+  return (
+    <div>
+      {alert && (
+        <div
+          id={alertId}
+          ref={alertRef}
+          role="alert"
+          tabIndex={-1}
+          className="mt-3 rounded-lg border border-[#991B1B] bg-[#FEF2F2] p-3 text-sm text-[#991B1B] outline-none focus-visible:ring-2 focus-visible:ring-[#991B1B]"
+        >
+          <p className="font-semibold">{alert.title}</p>
+          <p>{alert.detail}</p>
+        </div>
+      )}
+      {editing ? (
+        <div className="mt-3 grid gap-3">
+          <div>
+            <Label htmlFor={amountId}>Jumlah pembayaran</Label>
+            <Input
+              id={amountId}
+              ref={amountRef}
+              inputMode="numeric"
+              className="money mt-2 h-12"
+              value={text}
+              aria-invalid={alert ? true : undefined}
+              aria-describedby={alert ? alertId : undefined}
+              onChange={(event) => setText(event.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor={remainId}>Sisa utang</Label>
+            <Input id={remainId} readOnly className="mt-2 h-12" value={formatRupiah(outstanding)} />
+          </div>
+          <div className="flex flex-col gap-2 lg:flex-row">
+            <Button type="button" className="h-12 lg:flex-1" disabled={parseMoneyInput(text) == null} onClick={saveEdit}>
+              Simpan perubahan
+            </Button>
+            <Button type="button" variant="outline" className="h-12 lg:flex-1" onClick={cancelEdit}>
+              Batal
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 lg:flex-1"
+            onClick={() => {
+              setText(entry.amount == null ? "" : formatRupiah(entry.amount));
+              setEditing(true);
+            }}
+          >
+            Ubah jumlah
+          </Button>
+          <Button
+            ref={deleteRef}
+            type="button"
+            variant="ghost"
+            className="h-12 text-[#991B1B] hover:text-[#991B1B] lg:flex-1"
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2 aria-hidden />
+            Hapus draft
+          </Button>
+        </div>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-3 h-12 w-full"
+        aria-invalid={alert ? true : undefined}
+        aria-describedby={alert ? alertId : undefined}
+        onClick={() => {
+          onConfirm(entry.id);
+          if (alert) alertRef.current?.focus();
+        }}
+      >
+        Konfirmasi catatan ini
+      </Button>
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open);
+          if (!open) deleteRef.current?.focus();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hapus draft {formatRupiah(entry.amount ?? 0)}?</DialogTitle>
+            <DialogDescription>Catatan lain dan pembayaran sah tetap tersimpan.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setDeleteOpen(false);
+                onDelete(entry.id);
+              }}
+            >
+              Hapus draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function KonfirmasiPane({
   day,
   expected,
@@ -1076,6 +1275,9 @@ function KonfirmasiPane({
   keluar,
   onConfirm,
   onChoose,
+  onUpdateAmount,
+  onDelete,
+  reviewDraft,
 }: {
   day: DayRecord;
   expected: number;
@@ -1084,10 +1286,16 @@ function KonfirmasiPane({
   keluar: number;
   onConfirm: (id: string) => void;
   onChoose: (id: string, method: "tunai" | "qris") => void;
+  onUpdateAmount: (id: string, amount: number) => void;
+  onDelete: (id: string) => void;
+  reviewDraft: (entry: Entry) => {
+    outstanding: number;
+    alert: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
+  };
 }) {
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight">Cek sebelum tutup</h1>
+      <h1 id="cek-heading" tabIndex={-1} className="text-2xl font-bold tracking-tight outline-none">Cek sebelum tutup</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         Uang laci seharusnya {formatRupiah(expected)} (modal {compactRb(day.modalAwal)} + tunai masuk {compactRb(masuk)} − keluar {compactRb(keluar)}). Omzet tunai {formatRupiah(omzet)}, bukan total tunai masuk.
       </p>
@@ -1109,8 +1317,18 @@ function KonfirmasiPane({
               {entry.method === "tidak_tahu" && (
                 <MethodChoice method={null} onMethod={(method) => onChoose(entry.id, method)} />
               )}
-              {entry.status !== "confirmed" && entry.method !== "tidak_tahu" && (
-                <Button type="button" variant="outline" className="mt-3 w-full" onClick={() => onConfirm(entry.id)}>
+              {entry.status !== "confirmed" && entry.method !== "tidak_tahu" && entry.type === "kasbon_bayar" && (
+                <PaymentDraftTools
+                  entry={entry}
+                  outstanding={reviewDraft(entry).outstanding}
+                  alert={reviewDraft(entry).alert}
+                  onConfirm={onConfirm}
+                  onUpdateAmount={onUpdateAmount}
+                  onDelete={onDelete}
+                />
+              )}
+              {entry.status !== "confirmed" && entry.method !== "tidak_tahu" && entry.type !== "kasbon_bayar" && (
+                <Button type="button" variant="outline" className="mt-3 h-12 w-full" onClick={() => onConfirm(entry.id)}>
                   Konfirmasi catatan ini
                 </Button>
               )}

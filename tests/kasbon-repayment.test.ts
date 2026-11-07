@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDay } from "@/lib/day";
-import { assessRepayment } from "@/lib/kasbon";
+import { assessRepayment, draftPaymentAlert } from "@/lib/kasbon";
 import type { Entry } from "@/lib/types";
 
 function debt(person: string, amount: number): Entry {
@@ -86,5 +86,54 @@ describe("assessRepayment", () => {
     expect(made).toMatchObject({ ok: false, reason: "no_active_debt" });
     const pakMade = assessRepayment({ days: [day], person: "Pak Made", amount: 20_000 });
     expect(pakMade.ok).toBe(true);
+  });
+
+  it("describes a stored draft that is outside the drawer", () => {
+    const tooMuch = assessRepayment({
+      days: [
+        (() => {
+          const sample = createDay({
+            warungName: "QA",
+            modalAwal: 200_000,
+            now: new Date("2026-11-07T03:00:00Z"),
+          });
+          sample.entries = [debt("Bu Qatest", 20_000)];
+          return sample;
+        })(),
+      ],
+      person: "Bu Qatest",
+      amount: 25_000,
+    });
+    if (tooMuch.ok) throw new Error("expected rejection");
+    expect(
+      draftPaymentAlert({
+        person: "Bu Qatest",
+        amount: 25_000,
+        knownPerson: true,
+        decision: tooMuch,
+      }),
+    ).toEqual({
+      title: "Belum bisa dikonfirmasi",
+      detail: "Rp25.000 melebihi sisa utang Rp20.000. Draft belum masuk perhitungan.",
+    });
+
+    const repaid = assessRepayment({ days: [], person: "Bu Qatest", amount: 5_000 });
+    if (repaid.ok) throw new Error("expected rejection");
+    expect(
+      draftPaymentAlert({
+        person: "Bu Qatest",
+        amount: 5_000,
+        knownPerson: true,
+        decision: repaid,
+      }).detail,
+    ).toBe("Bu Qatest sudah lunas. Draft belum masuk perhitungan.");
+    expect(
+      draftPaymentAlert({
+        person: "QA-TEST-R3b-TanpaUtang",
+        amount: 7_000,
+        knownPerson: false,
+        decision: repaid,
+      }).detail,
+    ).toBe("QA-TEST-R3b-TanpaUtang tidak punya utang. Draft belum masuk perhitungan.");
   });
 });

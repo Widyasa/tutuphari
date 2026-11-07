@@ -125,3 +125,34 @@ export function assessRepayment(input: {
     remainingAfter: outstanding - amount,
   };
 }
+
+export function personBalance(
+  days: DayRecord[],
+  person: string,
+): { outstanding: number; knownPerson: boolean } {
+  const name = person.trim().replace(/\s+/g, " ");
+  const row = kasbonBook(days).find((item) => keyOf(item.person) === keyOf(name));
+  return { outstanding: row?.outstanding ?? 0, knownPerson: row != null };
+}
+
+/** Copy for a payment draft that is still stored and still excluded from the drawer. */
+export function draftPaymentAlert(input: {
+  person: string;
+  amount: number;
+  knownPerson: boolean;
+  decision: Extract<RepaymentDecision, { ok: false }>;
+}): { title: "Belum bisa dikonfirmasi"; detail: string } {
+  if (input.decision.reason === "exceeds_remaining") {
+    return {
+      title: "Belum bisa dikonfirmasi",
+      detail: `${formatRupiah(input.amount)} melebihi sisa utang ${formatRupiah(input.decision.outstanding)}. Draft belum masuk perhitungan.`,
+    };
+  }
+  const reason = input.knownPerson
+    ? `${input.person} sudah lunas`
+    : `${input.person} tidak punya utang`;
+  return {
+    title: "Belum bisa dikonfirmasi",
+    detail: `${reason}. Draft belum masuk perhitungan.`,
+  };
+}
