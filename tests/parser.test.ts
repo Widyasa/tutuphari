@@ -103,6 +103,22 @@ describe("parseNotes", () => {
     expect(entry.question).toMatch(/tunai atau QRIS/i);
   });
 
+  it("keeps a payment without an amount beside a valid sale", () => {
+    const [payment, sale] = parseNotes("bayar si budi\njual teh 5rb tunai");
+    expect(payment).toMatchObject({
+      amount: null,
+      sourceText: "bayar si budi",
+      needsConfirmation: true,
+    });
+    expect(payment.question).toMatch(/nominal/i);
+    expect(sale).toMatchObject({
+      type: "penjualan",
+      amount: 5_000,
+      method: "tunai",
+      sourceText: "jual teh 5rb tunai",
+    });
+  });
+
   it("does not invent a transaction when there is no amount", () => {
     expect(parseNotes("catatan tanpa angka")).toEqual([]);
     const [entry] = parseNotes("jual nasi tanpa harga");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDemoDay } from "@/lib/demo";
-import { canCountDrawer, closeGate, reduceNav, showsBottomNav, type NavState } from "@/lib/flow";
+import { backTarget, canCountDrawer, closeGate, reduceNav, reviewBlockMessage, showsBottomNav, type NavState } from "@/lib/flow";
 
 const home: NavState = { dest: "hari", step: null, draft: "" };
 
@@ -25,7 +25,7 @@ describe("v3 navigation", () => {
 
   it("blocks the drawer count until an unclear note is chosen and then confirmed", () => {
     const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
-    expect(closeGate(day.entries)).toBe("ambigu");
+    expect(closeGate(day.entries)).toBe("konfirmasi");
     expect(canCountDrawer(day.entries)).toBe(false);
 
     const chosen = day.entries.map((entry) =>
@@ -39,5 +39,29 @@ describe("v3 navigation", () => {
     );
     expect(closeGate(confirmed)).toBe("hitung");
     expect(canCountDrawer(confirmed)).toBe(true);
+  });
+
+  it("keeps a null-amount draft on the review list without letting it unlock the drawer", () => {
+    const incomplete = {
+      method: "tidak_tahu" as const,
+      status: "draft" as const,
+      needsConfirmation: true,
+      amount: null,
+    };
+    const valid = {
+      method: "tunai" as const,
+      status: "draft" as const,
+      needsConfirmation: false,
+      amount: 5_000,
+    };
+    expect(closeGate([incomplete, valid])).toBe("konfirmasi");
+    expect(canCountDrawer([incomplete, valid])).toBe(false);
+    expect(reviewBlockMessage([incomplete, valid])).toMatch(/nominalnya belum diisi/i);
+    expect(backTarget({ dest: "hari", step: "konfirmasi", draft: "" }).step).toBe("catat");
+
+    const confirmed = [{ ...valid, status: "confirmed" as const }];
+    expect(closeGate(confirmed)).toBe("hitung");
+    expect(canCountDrawer(confirmed)).toBe(true);
+    expect(reviewBlockMessage(confirmed)).toBeNull();
   });
 });

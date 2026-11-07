@@ -25,12 +25,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { closeDay, cashSign } from "@/lib/calculator";
 import { CASH_DISCLAIMER } from "@/lib/copy";
-import { extractNote } from "@/lib/client-api";
+import { explainDay, extractNote } from "@/lib/client-api";
 import { createDay } from "@/lib/day";
 import { draftConfirmBlock, draftShowsMethod, draftShowsName, normalizeDraftEdit } from "@/lib/draft-edit";
 import { formatMediumDate } from "@/lib/dates";
 import { createDemoDay, createDemoHistory } from "@/lib/demo";
-import { explainClose } from "@/lib/explain";
+import { closingSentenceView, explainClose, explanationSignature, shareInflight } from "@/lib/explain";
 import { toCsv, toWhatsApp } from "@/lib/export";
 import {
   backTarget,
@@ -38,6 +38,7 @@ import {
   closeGate,
   progressOf,
   reduceNav,
+  reviewBlockMessage,
   showsBottomNav,
   type Dest,
   type NavState,
@@ -65,6 +66,11 @@ function compactRb(amount: number): string {
   return formatRupiah(abs);
 }
 
+function unclearChip(entry: Entry): string {
+  const name = entry.item ?? "catatan";
+  return entry.amount == null ? `${name} nominal belum diisi` : `${name} ${compactRb(entry.amount)}`;
+}
+
 function gapLabel(selisih: number | null): string {
   if (selisih == null) return "Belum dihitung";
   if (selisih === 0) return "Pas";
@@ -88,7 +94,6 @@ export function V3App() {
   const [payAmount, setPayAmount] = useState("");
   const [payError, setPayError] = useState<string | null>(null);
   const payLock = useRef(false);
-  const [ambiguId, setAmbiguId] = useState<string | null>(null);
   const [readNotice, setReadNotice] = useState<string | null>(null);
   const offline = !useSyncExternalStore(subscribeOnline, onlineSnapshot, serverOnline);
   const navRef = useRef(nav);
@@ -234,9 +239,6 @@ export function V3App() {
   const tunaiKeluar =
     result.pengeluaranTunai + result.ambilPribadiTunai + result.kasbonKeluarTunai + result.tarikTunai;
   const book = kasbonBook([day, ...store.history.filter((item) => item.id !== day.id)]);
-  const focusedAmbigu = ambiguId ? day.entries.find((entry) => entry.id === ambiguId) : undefined;
-  const ambiguShown =
-    focusedAmbigu && focusedAmbigu.method !== "tidak_tahu" ? focusedAmbigu : (unclear[0] ?? focusedAmbigu ?? null);
   const activePeople = book.filter((row) => row.outstanding > 0);
   const kasbonTotal = activePeople.reduce((sum, row) => sum + row.outstanding, 0);
   const showNav = showsBottomNav(nav.step);
@@ -255,7 +257,7 @@ export function V3App() {
       window.history.back();
       return;
     }
-    navigate(backTarget(navRef.current, unclear.length > 0), "replace");
+    navigate(backTarget(navRef.current), "replace");
   }
 
   async function sendDraft(text: string) {
@@ -281,7 +283,6 @@ export function V3App() {
       navigate({ ...navRef.current, step: "fallback", draft: text }, "replace");
       return;
     }
-    let landed: Step = "konfirmasi";
     commit((current) => {
       if (current.active?.id !== dayId) return current;
       const entries = [
@@ -301,19 +302,24 @@ export function V3App() {
         entries,
         draftNote: "",
       };
-      landed = closeGate(entries) === "ambigu" ? "ambigu" : "konfirmasi";
       return { ...current, active };
     });
-    navigate({ dest: navRef.current.dest, step: landed, draft: "" }, "replace");
+    navigate({ dest: navRef.current.dest, step: "konfirmasi", draft: "" }, "replace");
   }
 
   function chooseMethod(id: string, method: "tunai" | "qris") {
-    setAmbiguId(id);
     updateActive((current) => ({
       ...current,
-      entries: current.entries.map((entry) =>
-        entry.id === id ? { ...entry, method, needsConfirmation: false, question: null } : entry,
-      ),
+      entries: current.entries.map((entry) => {
+        if (entry.id !== id) return entry;
+        const amountMissing = entry.amount == null || entry.amount <= 0;
+        return {
+          ...entry,
+          method,
+          needsConfirmation: amountMissing || entry.type === "lainnya",
+          question: amountMissing ? entry.question ?? "Nominalnya berapa?" : null,
+        };
+      }),
     }));
   }
 
@@ -577,18 +583,7 @@ export function V3App() {
               onMethod={setManualMethod}
             />
           )}
-          {flow === "ambigu" && (
-            <AmbiguPane
-              entry={ambiguShown}
-              expected={result.expectedCash}
-              onChoose={(method) => ambiguShown && chooseMethod(ambiguShown.id, method)}
-              blocked={ambiguShown ? draftConfirmBlock(ambiguShown, ledgerDays()) : null}
-              onConfirm={confirmEntry}
-              onUpdate={updateDraft}
-              onDelete={deleteDraft}
-            />
-          )}
-          {flow === "konfirmasi" && (
+          {(flow === "ambigu" || flow === "konfirmasi") && (
             <KonfirmasiPane
               day={day}
               expected={result.expectedCash}
@@ -686,7 +681,7 @@ export function V3App() {
               qrisNoted={result.penjualanQris}
               kasbonTotal={kasbonTotal}
               people={activePeople.length}
-              unclearLabel={unclear[0] ? `${unclear[0].item ?? "catatan"} ${compactRb(unclear[0].amount ?? 0)}` : null}
+              unclearLabel={unclear[0] ? unclearChip(unclear[0]) : null}
             />
           )}
         </main>
@@ -709,34 +704,10 @@ export function V3App() {
               Simpan manual
             </Button>
           )}
-          {flow === "ambigu" && (
-            <Button
-              type="button"
-              className="h-12 w-full lg:w-auto lg:min-w-56"
-              data-testid="primary-cta"
-              disabled={!ambiguShown || ambiguShown.method === "tidak_tahu"}
-              onClick={() => {
-                const rest = day.entries.filter((entry) => entry.method === "tidak_tahu");
-                if (rest[0]) {
-                  setAmbiguId(rest[0].id);
-                  goStep("ambigu");
-                } else {
-                  setAmbiguId(null);
-                  goStep("konfirmasi");
-                }
-              }}
-            >
-              Lanjut cek catatan
-            </Button>
-          )}
-          {flow === "konfirmasi" && (
+          {(flow === "ambigu" || flow === "konfirmasi") && (
             <div>
-              {gate !== "hitung" && (
-                <p className="mb-2 text-sm text-[#991B1B]">
-                  {gate === "ambigu"
-                    ? "Masih ada catatan yang cara bayarnya belum dipilih."
-                    : "Masih ada catatan yang belum dikonfirmasi."}
-                </p>
+              {reviewBlockMessage(day.entries) && (
+                <p className="mb-2 text-sm text-[#991B1B]">{reviewBlockMessage(day.entries)}</p>
               )}
               <Button type="button" className="h-12 w-full lg:w-auto lg:min-w-56" data-testid="primary-cta" disabled={!canCountDrawer(day.entries)} onClick={() => goStep("hitung")}>
                 Lanjut hitung laci
@@ -1080,45 +1051,9 @@ function FallbackPane({
   );
 }
 
-function AmbiguPane({
-  entry,
-  expected,
-  onChoose,
-  blocked,
-  onConfirm,
-  onUpdate,
-  onDelete,
-}: {
-  entry: Entry | null;
-  expected: number;
-  blocked: { title: "Belum bisa dikonfirmasi"; detail: string } | null;
-  onChoose: (method: "tunai" | "qris") => void;
-  onConfirm: (id: string) => void;
-  onUpdate: (id: string, patch: ReturnType<typeof normalizeDraftEdit>) => void;
-  onDelete: (id: string) => void;
-}) {
-  if (!entry || entry.amount == null) {
-    return <p>Tidak ada catatan yang perlu dipilih.</p>;
-  }
-  const chosen = entry.method === "tunai" || entry.method === "qris" ? entry.method : null;
-  return (
-    <div>
-      <h1 className="text-2xl font-bold tracking-tight">Perlu kamu pilih</h1>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        Cara bayar belum jelas. Saat ini belum masuk uang laci seharusnya {formatRupiah(expected)}. Tunai → {formatRupiah(expected + entry.amount)}. QRIS → tetap {formatRupiah(expected)}, QRIS +{formatRupiah(entry.amount)}.
-      </p>
-      <div className="mt-4 rounded-xl border border-[#991B1B] bg-card p-4">
-        <p className="inline-flex min-h-8 items-center rounded-full border border-[#991B1B] px-2 text-xs font-medium text-[#991B1B]">
-          {chosen ? METHOD_LABEL[chosen] : "Belum dipilih"}
-        </p>
-        <p className="mt-3 text-sm text-muted-foreground">Dari catatan</p>
-        <p className="font-medium">“{entry.sourceText}”</p>
-        <p className="money mt-2 text-3xl font-bold">{formatRupiah(entry.amount)}</p>
-        <MethodChoice method={chosen} onMethod={onChoose} />
-        <DraftCardTools entry={entry} blocked={blocked} onConfirm={onConfirm} onUpdate={onUpdate} onDelete={onDelete} />
-      </div>
-    </div>
-  );
+function draftMoneyLabel(amount: number | null, negative: boolean): string {
+  if (amount == null) return "Nominal belum diisi";
+  return negative ? `−${formatRupiah(amount)}` : formatRupiah(amount);
 }
 
 function MethodChoice({
@@ -1337,7 +1272,7 @@ function DraftCardTools({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Hapus draft {typeLabel} {formatRupiah(entry.amount ?? 0)}?</DialogTitle>
+            <DialogTitle>Hapus draft {typeLabel} {draftMoneyLabel(entry.amount, false)}?</DialogTitle>
             <DialogDescription>Catatan lain tetap tersimpan.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1394,9 +1329,10 @@ function KonfirmasiPane({
                 </span>
                 {entry.status === "confirmed" && <span className="text-xs text-[#166534]">Sudah dikonfirmasi</span>}
               </div>
-              <p className="money mt-1 text-2xl font-bold">{negative ? `−${formatRupiah(entry.amount ?? 0)}` : formatRupiah(entry.amount ?? 0)}</p>
-              {(entry.status === "confirmed" || day.closedAt) && (
-                <p className="text-sm text-muted-foreground">“{entry.sourceText}”</p>
+              <p className="money mt-1 text-2xl font-bold">{draftMoneyLabel(entry.amount, negative)}</p>
+              <p className="text-sm text-muted-foreground">“{entry.sourceText}”</p>
+              {entry.question && (
+                <p className="mt-2 text-sm leading-relaxed text-[#991B1B]">{entry.question}</p>
               )}
               {entry.method === "tidak_tahu" && (
                 <MethodChoice method={null} onMethod={(method) => onChoose(entry.id, method)} />
@@ -1440,6 +1376,8 @@ function HitungPane({ counted, onCounted }: { counted: number | null; onCounted:
   );
 }
 
+const explainInflight = new Map<string, Promise<{ parser: "ai" | "rule"; explanation: string } | null>>();
+
 function HasilPane({
   day,
   result,
@@ -1451,6 +1389,50 @@ function HasilPane({
   masuk: number;
   keluar: number;
 }) {
+  const localText = explainClose(result);
+  const signature = explanationSignature({
+    modalAwal: day.modalAwal,
+    countedCash: day.countedCash,
+    countedQris: day.countedQris,
+    warungName: day.warungName,
+    expectedCash: result.expectedCash,
+    selisih: result.selisih,
+    entries: day.entries,
+  });
+  const [ai, setAi] = useState<{ signature: string; text: string | null } | null>(null);
+  const settled = ai?.signature === signature ? ai : null;
+  useEffect(() => {
+    if (day.countedCash == null) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void shareInflight(explainInflight, signature, () =>
+        explainDay({
+          warungName: day.warungName,
+          modalAwal: day.modalAwal,
+          countedCash: day.countedCash,
+          countedQris: day.countedQris,
+          entries: day.entries,
+        }),
+      ).then((response) => {
+        const fromAi = Boolean(response?.parser === "ai" && response.explanation.trim());
+        if (!fromAi) explainInflight.delete(signature);
+        if (cancelled) return;
+        setAi({
+          signature,
+          text: fromAi ? response?.explanation ?? null : null,
+        });
+      });
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [signature, day]);
+  const view = closingSentenceView({
+    status: day.countedCash == null ? "fallback" : settled ? (settled.text ? "ai" : "fallback") : "loading",
+    aiText: settled?.text ?? null,
+    localText,
+  });
   const tone = result.verdict === "kurang" ? "text-[#991B1B]" : result.verdict === "pas" ? "text-[#166534]" : "text-foreground";
   const title =
     result.selisih == null
@@ -1476,7 +1458,8 @@ function HasilPane({
           {result.penjualanQris > 0 ? ` · QRIS ${formatRupiah(result.penjualanQris)} (bukan laci)` : ""}
         </p>
       </div>
-      <p className="mt-4 text-sm leading-relaxed whitespace-pre-wrap">{explainClose(result)}</p>
+      <p className="mt-4 text-sm font-semibold" data-testid="explain-label" data-from-ai={view.fromAi ? "true" : "false"}>{view.label}</p>
+      <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap" data-testid="explain-text">{view.text}</p>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{day.warungName}. {CASH_DISCLAIMER}</p>
     </div>
   );

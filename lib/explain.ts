@@ -12,6 +12,65 @@ function gapPhrase(selisih: number): string {
  * Plain-language closing note. Uses only numbers the calculator already produced.
  * A leftover gap stays "belum terjelaskan".
  */
+export function explanationSignature(input: {
+  modalAwal: number;
+  countedCash: number | null;
+  countedQris: number | null;
+  warungName: string;
+  expectedCash: number;
+  selisih: number | null;
+  entries: Pick<Entry, "id" | "status" | "type" | "method" | "amount" | "needsConfirmation" | "sourceText">[];
+}): string {
+  return JSON.stringify({
+    modal: input.modalAwal,
+    cash: input.countedCash,
+    qris: input.countedQris,
+    name: input.warungName,
+    expected: input.expectedCash,
+    selisih: input.selisih,
+    entries: input.entries.map((entry) => [
+      entry.id,
+      entry.status,
+      entry.type,
+      entry.method,
+      entry.amount,
+      entry.needsConfirmation,
+      entry.sourceText,
+    ]),
+  });
+}
+
+/** One network call per signature, including a second mount of the same result. */
+export function shareInflight<T>(cache: Map<string, Promise<T>>, key: string, run: () => Promise<T>): Promise<T> {
+  const existing = cache.get(key);
+  if (existing) return existing;
+  const pending = run();
+  cache.set(key, pending);
+  return pending;
+}
+
+export function closingSentenceView(input: {
+  status: "loading" | "ai" | "fallback";
+  aiText: string | null;
+  localText: string;
+}): { label: string; text: string; fromAi: boolean } {
+  if (input.status === "ai" && input.aiText?.trim()) {
+    return { label: "Kalimat AI", text: input.aiText, fromAi: true };
+  }
+  if (input.status === "loading") {
+    return {
+      label: "Lagi minta kalimat AI. Ringkasan di bawah belum dari AI.",
+      text: input.localText,
+      fromAi: false,
+    };
+  }
+  return {
+    label: "Kalimat AI tidak tersedia. Ringkasan tanpa AI.",
+    text: input.localText,
+    fromAi: false,
+  };
+}
+
 export function explainClose(result: CloseResult): string {
   if (result.countedCash == null || result.selisih == null) {
     return "Isi dulu uang yang kamu hitung di laci.";
