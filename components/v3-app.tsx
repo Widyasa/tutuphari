@@ -41,7 +41,7 @@ import {
   type Step,
 } from "@/lib/flow";
 import { createId } from "@/lib/id";
-import { kasbonBook } from "@/lib/kasbon";
+import { assessRepayment, kasbonBook } from "@/lib/kasbon";
 import { formatRupiah, parseMoneyInput } from "@/lib/rupiah";
 import { emptyStore } from "@/lib/storage";
 import { METHOD_LABEL, TYPE_LABEL, type DayRecord, type Entry, type Store } from "@/lib/types";
@@ -83,6 +83,8 @@ export function V3App() {
   const [payOpen, setPayOpen] = useState(false);
   const [payName, setPayName] = useState("");
   const [payAmount, setPayAmount] = useState("");
+  const [payError, setPayError] = useState<string | null>(null);
+  const payLock = useRef(false);
   const [ambiguId, setAmbiguId] = useState<string | null>(null);
   const [readNotice, setReadNotice] = useState<string | null>(null);
   const offline = !useSyncExternalStore(subscribeOnline, onlineSnapshot, serverOnline);
@@ -313,12 +315,29 @@ export function V3App() {
   }
 
   function confirmEntry(id: string) {
+    if (!day) return;
+    const entry = day.entries.find((item) => item.id === id);
+    if (entry?.type === "kasbon_bayar") {
+      if (entry.amount == null || entry.amount <= 0 || !entry.counterparty) {
+        setNotice("Pembayaran kasbon butuh nama orang dan jumlah. Pembayaran tidak dicatat.");
+        return;
+      }
+      const decision = assessRepayment({
+        days: [day, ...store.history.filter((item) => item.id !== day.id)],
+        person: entry.counterparty,
+        amount: entry.amount,
+      });
+      if (!decision.ok) {
+        setNotice(decision.message);
+        return;
+      }
+    }
     updateActive((current) => ({
       ...current,
-      entries: current.entries.map((entry) =>
-        entry.id === id
-          ? { ...entry, status: "confirmed", needsConfirmation: false, question: null }
-          : entry,
+      entries: current.entries.map((item) =>
+        item.id === id
+          ? { ...item, status: "confirmed", needsConfirmation: false, question: null }
+          : item,
       ),
     }));
   }
@@ -391,9 +410,23 @@ export function V3App() {
   }
 
   function saveKasbonPayment() {
+    if (!day) return;
     const amount = parseMoneyInput(payAmount);
     const person = payName.trim();
     if (!person || amount == null || amount <= 0) return;
+    if (payLock.current) return;
+    const decision = assessRepayment({
+      days: [day, ...store.history.filter((item) => item.id !== day.id)],
+      person,
+      amount,
+    });
+    if (!decision.ok) {
+      setPayError(decision.message);
+      setNotice(null);
+      return;
+    }
+    payLock.current = true;
+    setPayError(null);
     updateActive((current) => ({
       ...current,
       notes: [
@@ -562,9 +595,22 @@ export function V3App() {
               payOpen={payOpen}
               payName={payName}
               payAmount={payAmount}
-              onToggle={() => setPayOpen((open) => !open)}
-              onName={setPayName}
-              onAmount={setPayAmount}
+              payError={payError}
+              onToggle={() => {
+                setPayOpen((open) => {
+                  if (!open) payLock.current = false;
+                  return !open;
+                });
+                setPayError(null);
+              }}
+              onName={(value) => {
+                setPayName(value);
+                setPayError(null);
+              }}
+              onAmount={(value) => {
+                setPayAmount(value);
+                setPayError(null);
+              }}
               onSave={saveKasbonPayment}
             />
           )}
@@ -1339,6 +1385,7 @@ function KasbonPane({
   payOpen,
   payName,
   payAmount,
+  payError,
   onToggle,
   onName,
   onAmount,
@@ -1350,6 +1397,7 @@ function KasbonPane({
   payOpen: boolean;
   payName: string;
   payAmount: string;
+  payError: string | null;
   onToggle: () => void;
   onName: (value: string) => void;
   onAmount: (value: string) => void;
@@ -1386,6 +1434,7 @@ function KasbonPane({
             <Input id="pay-amount" inputMode="numeric" className="mt-2 h-12" value={payAmount} placeholder="contoh: 10000" onChange={(event) => onAmount(event.target.value)} />
           </div>
           <Button type="button" variant="outline" className="h-12" onClick={onToggle}>Batal</Button>
+          {payError && <p role="alert" className="text-sm font-semibold text-[#991B1B]">{payError}</p>}
         </div>
       )}
       <div className="mt-4">

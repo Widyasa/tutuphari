@@ -1,3 +1,4 @@
+import { formatRupiah } from "@/lib/rupiah";
 import type { DayRecord } from "@/lib/types";
 
 export type KasbonMovement = {
@@ -70,4 +71,57 @@ export function kasbonBook(days: DayRecord[]): KasbonPerson[] {
   return [...rows.values()].sort(
     (a, b) => b.outstanding - a.outstanding || a.person.localeCompare(b.person, "id"),
   );
+}
+
+export type RepaymentDecision =
+  | {
+      ok: true;
+      person: string;
+      amount: number;
+      outstanding: number;
+      remainingAfter: number;
+    }
+  | {
+      ok: false;
+      reason: "no_active_debt" | "exceeds_remaining";
+      person: string;
+      outstanding: number;
+      message: string;
+    };
+
+/** Accept a cash repayment only when it fits the debt still owed to this exact name. */
+export function assessRepayment(input: {
+  days: DayRecord[];
+  person: string;
+  amount: number;
+}): RepaymentDecision {
+  const person = input.person.trim().replace(/\s+/g, " ");
+  const amount = Math.round(input.amount);
+  const row = kasbonBook(input.days).find((item) => keyOf(item.person) === keyOf(person));
+  const outstanding = row?.outstanding ?? 0;
+  if (outstanding <= 0) {
+    return {
+      ok: false,
+      reason: "no_active_debt",
+      person,
+      outstanding,
+      message: `${person} tidak punya utang aktif. Pembayaran tidak dicatat.`,
+    };
+  }
+  if (amount > outstanding) {
+    return {
+      ok: false,
+      reason: "exceeds_remaining",
+      person,
+      outstanding,
+      message: `Pembayaran ${formatRupiah(amount)} melebihi sisa utang ${formatRupiah(outstanding)}. Pembayaran tidak dicatat.`,
+    };
+  }
+  return {
+    ok: true,
+    person,
+    amount,
+    outstanding,
+    remainingAfter: outstanding - amount,
+  };
 }
