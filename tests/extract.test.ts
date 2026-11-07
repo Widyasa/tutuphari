@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleExplain, handleExtract } from "@/lib/handlers";
-import { resetGeminiCache } from "@/lib/gemini";
+import { EXPLAIN_SYSTEM, resetGeminiCache } from "@/lib/gemini";
 import type { Bucket } from "@/lib/rate-limit";
 import { createDemoDay } from "@/lib/demo";
 import { buildUiExplainDay } from "@/lib/explain-evidence";
@@ -369,6 +369,59 @@ describe("handleExplain", () => {
     expect(badBody.explanation).not.toContain("999");
     expect(badBody.explanation.toLowerCase()).toContain("belum terjelaskan");
     expect(aiTextIsGrounded("Rp999.999", [15_000])).toBe(false);
+  });
+
+  it("rejects a gap claim that points at a note and tells the model to leave that id empty", async () => {
+    expect(EXPLAIN_SYSTEM).toContain("entryId untuk gap wajib null");
+    const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
+    const result = closeDay(day);
+    const response = await handleExplain(
+      request(
+        {
+          warungName: day.warungName,
+          modalAwal: day.modalAwal,
+          countedCash: day.countedCash,
+          countedQris: day.countedQris,
+          entries: day.entries,
+        },
+        "10.2.2.9",
+      ),
+      {
+        xaiApiKey: "xai-secret",
+        buckets: new Map<string, Bucket>(),
+        now: 7_500,
+        fetchImpl: async () =>
+          jsonResponse({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    warmth: "Sudah kelihatan mana yang perlu dicek.",
+                    claims: [
+                      {
+                        kind: "gap",
+                        entryId: "demo-entry-1",
+                        amount: Math.abs(result.selisih ?? 0),
+                        sign: result.verdict,
+                      },
+                      { kind: "qris_not_in_drawer", entryId: null, amount: result.penjualanQris, sign: null },
+                      ...result.whatIfs.map((item) => ({
+                        kind: "unclear_note",
+                        entryId: item.entryId,
+                        amount: item.amount,
+                        sign: null,
+                      })),
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+      },
+    );
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
   });
 
   it("does not call Gemini without a key", async () => {

@@ -107,10 +107,10 @@ amount adalah rupiah bilangan bulat.`;
 
 export const EXPLAIN_SYSTEM = `Isi claims untuk tutup kas. Jangan menulis prosa keuangan.
 warmth paling banyak satu kalimat pendek, tanpa angka, tanpa cara bayar, tanpa nama barang, dan tanpa pengandaian.
-gap memakai jumlah selisih dan tanda lebih, kurang, atau pas.
-qris_not_in_drawer hanya untuk omzet QRIS yang tidak masuk laci.
-unclear_note untuk catatan yang cara bayarnya belum jelas.
-unconfirmed_note untuk catatan yang cara bayarnya sudah tertulis tetapi belum dikonfirmasi.
+gap memakai jumlah selisih dan tanda lebih, kurang, atau pas. entryId untuk gap wajib null.
+qris_not_in_drawer hanya untuk omzet QRIS yang tidak masuk laci. entryId-nya wajib null.
+unclear_note untuk catatan yang cara bayarnya belum jelas. entryId memakai id catatan itu.
+unconfirmed_note untuk catatan yang cara bayarnya sudah tertulis tetapi belum dikonfirmasi. entryId memakai id catatan itu.
 Jangan menggabungkan beberapa catatan menjadi satu perkiraan.
 Jangan mengarang transaksi.`;
 
