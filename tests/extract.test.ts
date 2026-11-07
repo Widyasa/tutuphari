@@ -536,11 +536,14 @@ describe("explain validators for the live UI payload", () => {
     expect(nasi?.asTunaiSelisih).not.toBe(0);
     expect(body.explanation).toContain("Selisih lebih Rp15.000");
     expect(body.explanation).not.toMatch(/semua tunai/i);
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(
-      "/opt/cursor/artifacts/ui-explain-payload.json",
-      `${JSON.stringify(uiExplainBody(day), null, 2)}\n`,
-    );
+    const { existsSync, writeFileSync } = await import("node:fs");
+    const artifactDir = "/opt/cursor/artifacts";
+    if (existsSync(artifactDir)) {
+      writeFileSync(
+        `${artifactDir}/ui-explain-payload.json`,
+        `${JSON.stringify(uiExplainBody(day), null, 2)}\n`,
+      );
+    }
   });
 
   it("rejects an explain reply that cites an amount nobody recorded", async () => {
