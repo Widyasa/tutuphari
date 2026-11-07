@@ -1,3 +1,4 @@
+import { formatRupiah } from "@/lib/rupiah";
 import type { DayRecord } from "@/lib/types";
 
 export type KasbonMovement = {
@@ -70,4 +71,88 @@ export function kasbonBook(days: DayRecord[]): KasbonPerson[] {
   return [...rows.values()].sort(
     (a, b) => b.outstanding - a.outstanding || a.person.localeCompare(b.person, "id"),
   );
+}
+
+export type RepaymentDecision =
+  | {
+      ok: true;
+      person: string;
+      amount: number;
+      outstanding: number;
+      remainingAfter: number;
+    }
+  | {
+      ok: false;
+      reason: "no_active_debt" | "exceeds_remaining";
+      person: string;
+      outstanding: number;
+      message: string;
+    };
+
+/** Accept a cash repayment only when it fits the debt still owed to this exact name. */
+export function assessRepayment(input: {
+  days: DayRecord[];
+  person: string;
+  amount: number;
+}): RepaymentDecision {
+  const person = input.person.trim().replace(/\s+/g, " ");
+  const amount = Math.round(input.amount);
+  const row = kasbonBook(input.days).find((item) => keyOf(item.person) === keyOf(person));
+  const outstanding = row?.outstanding ?? 0;
+  if (outstanding <= 0) {
+    return {
+      ok: false,
+      reason: "no_active_debt",
+      person,
+      outstanding,
+      message: `${person} tidak punya utang aktif. Pembayaran tidak dicatat.`,
+    };
+  }
+  if (amount > outstanding) {
+    return {
+      ok: false,
+      reason: "exceeds_remaining",
+      person,
+      outstanding,
+      message: `Pembayaran ${formatRupiah(amount)} melebihi sisa utang ${formatRupiah(outstanding)}. Pembayaran tidak dicatat.`,
+    };
+  }
+  return {
+    ok: true,
+    person,
+    amount,
+    outstanding,
+    remainingAfter: outstanding - amount,
+  };
+}
+
+export function personBalance(
+  days: DayRecord[],
+  person: string,
+): { outstanding: number; knownPerson: boolean } {
+  const name = person.trim().replace(/\s+/g, " ");
+  const row = kasbonBook(days).find((item) => keyOf(item.person) === keyOf(name));
+  return { outstanding: row?.outstanding ?? 0, knownPerson: row != null };
+}
+
+/** Copy for a payment draft that is still stored and still excluded from the drawer. */
+export function draftPaymentAlert(input: {
+  person: string;
+  amount: number;
+  knownPerson: boolean;
+  decision: Extract<RepaymentDecision, { ok: false }>;
+}): { title: "Belum bisa dikonfirmasi"; detail: string } {
+  if (input.decision.reason === "exceeds_remaining") {
+    return {
+      title: "Belum bisa dikonfirmasi",
+      detail: `${formatRupiah(input.amount)} melebihi sisa utang ${formatRupiah(input.decision.outstanding)}. Draft belum masuk perhitungan.`,
+    };
+  }
+  const reason = input.knownPerson
+    ? `${input.person} sudah lunas`
+    : `${input.person} tidak punya utang`;
+  return {
+    title: "Belum bisa dikonfirmasi",
+    detail: `${reason}. Draft belum masuk perhitungan.`,
+  };
 }

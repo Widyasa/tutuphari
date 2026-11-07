@@ -14,9 +14,10 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 
 - Open the day with the cash already in the drawer.
 - Type free-text notes, or paste a whole day. Optional voice input when the browser supports Indonesian speech recognition.
-- Each note becomes cards the owner can accept, edit, or delete. The original sentence stays on the card.
+- An unconfirmed card in Konfirmasi can be accepted, edited, or deleted. The original sentence stays on the card. A confirmed row, and a day already closed, is not edited here. This is not a claim that every acceptance item is done.
 - Ambiguous notes, especially a sale with no payment method, stay out of the total until the owner chooses.
-- Tutup hari: counted cash in, expected cash and selisih out. QRIS is kept outside the drawer. The arithmetic is deterministic.
+- Tutup hari: counted cash in, uang laci seharusnya and selisih out. QRIS is kept outside the drawer. The arithmetic is deterministic.
+- Light mode only. Three destinations: Hari Ini, Kasbon, Riwayat. Catat, cek, hitung, and bagikan are a sub-flow, not a four-item menu.
 - A plain-language explanation. If the gap is not covered by the notes, it stays "belum terjelaskan".
 - Recap, CSV download, and WhatsApp text.
 - History and a kasbon ledger stored in the browser.
@@ -45,7 +46,7 @@ The model never decides the selisih. Expected cash is:
 
 QRIS and transfer do not enter the drawer. Unconfirmed notes and unknown methods do not either.
 
-If `GEMINI_API_KEY` is missing, the quota fails, or the network fails, a rule-based parser still reads amounts such as `15rb`, `15k`, `1,5jt`, and `1.500.000`, plus keywords for cash, QRIS, withdrawals, and kasbon. Those cards are marked "Tanpa AI". The same parser runs in the browser if the request never returns, so the page does not hard-fail.
+The rule parser reads amounts such as `15rb`, `15k`, `1,5jt`, and `1.500.000`, plus keywords for cash, QRIS, withdrawals, and kasbon. It runs when neither `XAI_API_KEY` nor `GEMINI_API_KEY` is configured, when the rate limit answers, or when every configured provider fails. A missing Gemini key does not skip straight to rules while an xAI key is set: xAI is called first, and the Gemini chain runs only if xAI fails and a Gemini key is present. If only the Gemini key is set, that chain is the provider. Rule cards are marked "Tanpa AI". The same parser runs in the browser if the request never returns, so the page does not hard-fail. `parser` is `ai` only after a provider returns schema-valid output. A rule reading is not an AI success.
 
 The extract and explain routes are rate-limited (20 requests / 10 minutes per IP, 60 per instance) and reject notes longer than 8.000 characters. The limit lives in memory on each server instance, which is enough to avoid burning a free-tier key and is not a global quota.
 
@@ -72,11 +73,11 @@ Requires Node.js 22+.
 ```bash
 npm install
 cp .env.example .env.local
-# Optional: put a Google AI Studio key in GEMINI_API_KEY
+# Optional: XAI_API_KEY for Grok first, GEMINI_API_KEY for the fallback chain
 npm run dev
 ```
 
-Open the URL printed by Next.js. Use a narrow window or a phone. Tap **Coba demo** to walk the sample day without a key. Without `GEMINI_API_KEY`, new notes still parse through the rule fallback.
+Open the URL printed by Next.js. Use a narrow window or a phone. Tap **Coba demo** to walk the sample day without a key. With neither `XAI_API_KEY` nor `GEMINI_API_KEY`, new notes parse through the rule fallback. One configured key uses that provider. Both keys try xAI first.
 
 ```bash
 npm test
@@ -92,7 +93,7 @@ https://tutuphari.vercel.app
 
 Open https://tutuphari.vercel.app on a phone-width window. There is no account. Tap **Coba demo**.
 
-The sample day is Warung Bu Komang, Denpasar, and the screen says it is synthetic. Modal awal is Rp200.000. The counted cash is already filled in as Rp270.000. Before the ambiguous note is resolved, expected cash is Rp255.000, so the drawer is **lebih Rp15.000**. The note `es jeruk 15rb` has no payment method. Choose **Tunai** and expected cash becomes Rp270.000, selisih pas. The es teh QRIS sale, Rp10.000, stays out of the drawer. If that note is marked QRIS instead, the cash gap stays lebih Rp15.000 and remains belum terjelaskan.
+The sample day is Warung Bu Komang, Denpasar, and the screen says it is synthetic. Modal awal is Rp200.000. The counted cash is already filled in as Rp270.000. Before the ambiguous note is resolved, uang laci seharusnya is Rp255.000, so the drawer is **lebih Rp15.000**. Omzet tunai is Rp120.000. Total tunai masuk is Rp140.000. The note `es jeruk 15rb` has no payment method. Choose **Tunai** and uang laci seharusnya becomes Rp270.000, selisih pas. The es teh QRIS sale, Rp10.000, stays out of the drawer. If that note is marked QRIS instead, the cash gap stays lebih Rp15.000 and QRIS for the day is Rp25.000.
 
 ## Demo Account
 
@@ -100,7 +101,8 @@ None. There is no login. Judges use **Coba demo** on the live site.
 
 ## Known Limitations
 
-- Data lives in `localStorage` on one browser. Clearing site data, or switching phones, drops the history. There is no sync.
+- Data lives in `localStorage` on one browser. Clearing site data, or switching phones, drops the history. There is no sync. Updating the app shell, or deleting only the service-worker cache, does not clear those notes.
+- The installed app is a light-mode shell. Offline, AI is unavailable and the phone reads the note itself. `/api` responses are not cached.
 - The in-memory rate limit resets when the server process restarts and is not shared across instances.
 - The rule parser misses unusual slang and will not guess a missing amount.
 - Voice input depends on the browser (`SpeechRecognition`, `id-ID`). Typing always works.
@@ -108,6 +110,7 @@ None. There is no login. Judges use **Coba demo** on the live site.
 - The AI can misread a note. The owner has to confirm. A leftover gap is left unexplained on purpose.
 - This is not an official cash report, tax record, or accounting system.
 - Demo figures are synthetic.
+- Kasbon payments already stored before the remaining-debt check stay as saved. A new repayment is rejected when that person has no remaining debt, or when the amount is larger than the debt still owed. Old overpayments are not deleted, rewritten, or turned into a new credit display. What to do with an existing credit is undecided.
 
 ## Third-party Resources / Credits
 
@@ -115,7 +118,7 @@ None. There is no login. Judges use **Coba demo** on the live site.
 - [shadcn/ui](https://ui.shadcn.com/)
 - [Tailwind CSS](https://tailwindcss.com/)
 - [Google Gemini API](https://ai.google.dev/)
-- [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/) and [IBM Plex Mono](https://github.com/IBM/plex) via `next/font`
+- [IBM Plex Sans](https://github.com/IBM/plex) and [IBM Plex Mono](https://github.com/IBM/plex) (OFL-1.1) via `next/font`. Icons are Lucide (ISC).
 - UI references and what was taken from each are listed in [docs/ui-references.md](docs/ui-references.md)
 
 ## Team Members

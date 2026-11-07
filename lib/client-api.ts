@@ -40,10 +40,13 @@ export async function extractNote(text: string, options: ClientOptions = {}): Pr
   } catch {
     // The phone may be offline. The same parser runs here.
   }
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
   return {
     parser: "rule",
     entries: parseNotes(text),
-    warning: "Tidak tersambung. Dipakai pembacaan tanpa AI.",
+    warning: offline
+      ? "AI tidak tersedia saat offline. Dipakai pembacaan di HP ini, tanpa AI."
+      : "AI tidak tersedia. Dipakai pembacaan di HP ini, tanpa AI.",
   };
 }
 

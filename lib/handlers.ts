@@ -1,13 +1,5 @@
 import { closeDay } from "@/lib/calculator";
-import {
-  allowedExplainAmounts,
-  aiTextIsGrounded,
-  explainClose,
-  explainUserPrompt,
-  explanationContradictsEntries,
-  explanationLeaksInternals,
-  matchesExplainSchema,
-} from "@/lib/explain";
+import { assessExplanation, explainClose, explainUserPrompt, matchesExplainSchema } from "@/lib/explain";
 import { EXPLAIN_SCHEMA, EXPLAIN_SYSTEM, EXTRACT_SCHEMA, EXTRACT_SYSTEM } from "@/lib/gemini";
 import { matchesExtractSchema, sanitizeAiEntries } from "@/lib/ground";
 import { runStructured } from "@/lib/llm";
@@ -212,8 +204,6 @@ export async function handleExplain(
     countedQris: countedQris != null && Number.isFinite(countedQris) ? countedQris : null,
   });
   const local = explainClose(result);
-  const allowed = allowedExplainAmounts(result, entries);
-
   if (!allowRequest(deps.buckets, clientIp(request), deps.now) || (!deps.apiKey && !deps.xaiApiKey)) {
     return Response.json({
       parser: "rule",
@@ -241,22 +231,11 @@ export async function handleExplain(
       fetchImpl: deps.fetchImpl,
       maxOutputTokens: 512,
     });
-    if (!matchesExplainSchema(ai.data)) {
-      return rejectExplain(local, "schema", ai);
-    }
-    const explanation = ai.data.explanation.trim();
-    if (!aiTextIsGrounded(explanation, allowed)) {
-      return rejectExplain(local, "ungrounded", ai);
-    }
-    if (explanationContradictsEntries(explanation, entries)) {
-      return rejectExplain(local, "contradiction", ai);
-    }
-    if (explanationLeaksInternals(explanation)) {
-      return rejectExplain(local, "leak", ai);
-    }
+    const judged = assessExplanation({ model: ai.data, result, entries });
+    if (!judged.ok) return rejectExplain(local, judged.reason, ai);
     return Response.json({
       parser: "ai",
-      explanation,
+      explanation: judged.explanation,
       provider: ai.provider,
       model: ai.model,
     });
@@ -268,7 +247,13 @@ export async function handleExplain(
 
 function rejectExplain(
   explanation: string,
-  reason: "schema" | "ungrounded" | "contradiction" | "leak" | "provider_error",
+  reason:
+    | "schema"
+    | "relation"
+    | "incomplete"
+    | "phrasing"
+    | "hypothetical"
+    | "provider_error",
   meta?: { provider: string; model: string },
 ): Response {
   console.warn(

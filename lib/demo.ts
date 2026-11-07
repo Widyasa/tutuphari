@@ -1,6 +1,51 @@
 import { todayInBali } from "@/lib/dates";
 import type { DayRecord, Entry } from "@/lib/types";
 
+export function createDemoHistory(): DayRecord[] {
+  const closed = (
+    id: string,
+    date: string,
+    modalAwal: number,
+    penjualan: number,
+    countedCash: number,
+  ): DayRecord => ({
+    id,
+    warungName: "Warung Bu Komang",
+    place: "Denpasar",
+    date,
+    isDemo: true,
+    modalAwal,
+    notes: [],
+    entries: [
+      {
+        id: `${id}-jual`,
+        noteId: `${id}-note`,
+        type: "penjualan",
+        amount: penjualan,
+        method: "tunai",
+        item: "nasi campur",
+        qty: null,
+        counterparty: null,
+        confidence: 1,
+        sourceText: "contoh hari sebelumnya",
+        needsConfirmation: false,
+        question: null,
+        parser: "demo",
+        status: "confirmed",
+      },
+    ],
+    countedCash,
+    countedQris: null,
+    closedAt: `${date}T21:00:00+08:00`,
+    priorKasbon: [],
+  });
+
+  return [
+    closed("demo-history-kamis", "2026-11-05", 200_000, 10_000, 210_000),
+    closed("demo-history-rabu", "2026-11-04", 190_000, 8_000, 206_000),
+  ];
+}
+
 export const DEMO_MODAL = 200_000;
 export const DEMO_COUNTED_CASH = 270_000;
 export const DEMO_COUNTED_QRIS = 10_000;

@@ -1,17 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleExplain, handleExtract } from "@/lib/handlers";
-import { resetGeminiCache } from "@/lib/gemini";
+import { EXPLAIN_SYSTEM, resetGeminiCache } from "@/lib/gemini";
 import type { Bucket } from "@/lib/rate-limit";
 import { createDemoDay } from "@/lib/demo";
-import { parseNotes } from "@/lib/parser";
-import type { Entry } from "@/lib/types";
+import { buildUiExplainDay } from "@/lib/explain-evidence";
 import { closeDay } from "@/lib/calculator";
 import {
   aiTextIsGrounded,
   allowedExplainAmounts,
+  explainClose,
   explainUserPrompt,
   explanationContradictsEntries,
   explanationLeaksInternals,
+  whatIfSentences,
 } from "@/lib/explain";
 import { XAI_MODEL_DEFAULT } from "@/lib/xai";
 import { CLIENT_FETCH_TIMEOUT_MS, extractNote, explainDay } from "@/lib/client-api";
@@ -340,16 +341,15 @@ describe("handleExplain", () => {
       buckets: new Map<string, Bucket>(),
       now: 6_000,
       fetchImpl: async () =>
-        geminiOf({
-          explanation:
-            "Selisih lebih Rp15.000. Catatan \"es jeruk 15rb\" belum jelas. Kalau tunai, selisih jadi pas Rp0. QRIS Rp10.000 tidak masuk laci. Selisih ini belum terjelaskan.",
-        }),
+        geminiOf(validClaims(day)),
     });
     const goodBody = await good.json();
     expect(goodBody.parser).toBe("ai");
     expect(goodBody.provider).toBe("gemini");
     expect(goodBody.model).toBe("gemini-3-flash-preview");
-    expect(goodBody.explanation).toContain("Rp15.000");
+    expect(goodBody.explanation).toContain("Selisih lebih Rp15.000");
+    expect(goodBody.explanation).toContain('Catatan "es jeruk 15rb" cara bayarnya belum jelas.');
+    expect(goodBody.explanation).toContain("Kalau catatan ini tunai, selisih jadi pas Rp0.");
 
     resetGeminiCache();
     const bad = await handleExplain(request(payload, "10.2.2.3"), {
@@ -358,7 +358,8 @@ describe("handleExplain", () => {
       now: 7_000,
       fetchImpl: async () =>
         geminiOf({
-          explanation: "Sepertinya ada bon tersembunyi Rp999.999 yang menutup laci.",
+          warmth: "Sudah kelihatan mana yang perlu dicek.",
+          claims: [{ kind: "gap", entryId: null, amount: 999_000, sign: "lebih" }],
         }),
     });
     const badBody = await bad.json();
@@ -368,6 +369,59 @@ describe("handleExplain", () => {
     expect(badBody.explanation).not.toContain("999");
     expect(badBody.explanation.toLowerCase()).toContain("belum terjelaskan");
     expect(aiTextIsGrounded("Rp999.999", [15_000])).toBe(false);
+  });
+
+  it("rejects a gap claim that points at a note and tells the model to leave that id empty", async () => {
+    expect(EXPLAIN_SYSTEM).toContain("entryId untuk gap wajib null");
+    const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
+    const result = closeDay(day);
+    const response = await handleExplain(
+      request(
+        {
+          warungName: day.warungName,
+          modalAwal: day.modalAwal,
+          countedCash: day.countedCash,
+          countedQris: day.countedQris,
+          entries: day.entries,
+        },
+        "10.2.2.9",
+      ),
+      {
+        xaiApiKey: "xai-secret",
+        buckets: new Map<string, Bucket>(),
+        now: 7_500,
+        fetchImpl: async () =>
+          jsonResponse({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    warmth: "Sudah kelihatan mana yang perlu dicek.",
+                    claims: [
+                      {
+                        kind: "gap",
+                        entryId: "demo-entry-1",
+                        amount: Math.abs(result.selisih ?? 0),
+                        sign: result.verdict,
+                      },
+                      { kind: "qris_not_in_drawer", entryId: null, amount: result.penjualanQris, sign: null },
+                      ...result.whatIfs.map((item) => ({
+                        kind: "unclear_note",
+                        entryId: item.entryId,
+                        amount: item.amount,
+                        sign: null,
+                      })),
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+      },
+    );
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
   });
 
   it("does not call Gemini without a key", async () => {
@@ -444,8 +498,8 @@ describe("handleExplain", () => {
       entries: day.entries,
     });
     expect(explanationLeaksInternals(prompt)).toBe(false);
-    expect(prompt).toContain("belum jelas");
-    expect(prompt).toContain("Kalau \"es jeruk 15rb\" ternyata tunai");
+    expect(prompt).toContain("cara bayar belum jelas");
+    expect(prompt.toLowerCase()).not.toContain("kalau");
     const response = await handleExplain(
       request(
         {
@@ -474,19 +528,7 @@ describe("handleExplain", () => {
 });
 
 function uiReproDay() {
-  const day = createDemoDay(new Date("2026-11-06T12:00:00+08:00"));
-  const added = ["jual nasi campur 3 x 15rb tunai", "es teh 2 10rb"].map((text, index) => {
-    const parsed = parseNotes(text)[0];
-    const entry: Entry = {
-      ...parsed,
-      id: index === 0 ? "ui-entry-nasi" : "ui-entry-teh",
-      noteId: index === 0 ? "ui-note-nasi" : "ui-note-teh",
-      status: "draft",
-      parser: "ai",
-    };
-    return entry;
-  });
-  return { ...day, entries: [...day.entries, ...added] };
+  return buildUiExplainDay();
 }
 
 function uiExplainBody(day: ReturnType<typeof uiReproDay>) {
@@ -496,6 +538,23 @@ function uiExplainBody(day: ReturnType<typeof uiReproDay>) {
     countedCash: day.countedCash,
     countedQris: day.countedQris,
     entries: day.entries,
+  };
+}
+
+function validClaims(day: ReturnType<typeof createDemoDay>) {
+  const result = closeDay(day);
+  return {
+    warmth: "Sudah kelihatan mana yang perlu dicek.",
+    claims: [
+      { kind: "gap", entryId: null, amount: Math.abs(result.selisih ?? 0), sign: result.verdict },
+      { kind: "qris_not_in_drawer", entryId: null, amount: result.penjualanQris, sign: null },
+      ...result.whatIfs.map((item) => ({
+        kind: item.method === "tidak_tahu" ? "unclear_note" : "unconfirmed_note",
+        entryId: item.entryId,
+        amount: item.amount,
+        sign: null,
+      })),
+    ],
   };
 }
 
@@ -513,24 +572,31 @@ describe("explain validators for the live UI payload", () => {
     expect(allowed).toContain(result.penjualanTunai + result.penjualanQris);
     expect(aiTextIsGrounded("Nasi campur tambahan 45 ribu.", allowed)).toBe(true);
     expect(aiTextIsGrounded("Selisihnya ada, tanpa angka.", allowed)).toBe(false);
-    const sentence =
-      "Penjualan tunai nasi campur Rp45.000 dan es teh Rp10.000 belum jelas. Uang dihitung Rp270.000, seharusnya Rp255.000, selisih lebih Rp15.000.";
-    expect(explanationContradictsEntries(sentence, day.entries)).toBe(false);
     const response = await handleExplain(request(uiExplainBody(day), "10.4.0.1"), {
       apiKey: "test-key",
       buckets: new Map<string, Bucket>(),
       now: 11_000,
-      fetchImpl: async () => geminiOf({ explanation: sentence }),
+      fetchImpl: async () => geminiOf(validClaims(day)),
     });
     const body = await response.json();
     expect(body.parser).toBe("ai");
     expect(body.provider).toBe("gemini");
     expect(body.model).toBe("gemini-3-flash-preview");
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(
-      "/opt/cursor/artifacts/ui-explain-payload.json",
-      `${JSON.stringify(uiExplainBody(day), null, 2)}\n`,
-    );
+    const lines = whatIfSentences(result);
+    expect(lines).toHaveLength(result.whatIfs.length);
+    for (const line of lines) expect(body.explanation).toContain(line);
+    const nasi = result.whatIfs.find((item) => item.entryId === "ui-entry-nasi");
+    expect(nasi?.asTunaiSelisih).not.toBe(0);
+    expect(body.explanation).toContain("Selisih lebih Rp15.000");
+    expect(body.explanation).not.toMatch(/semua tunai/i);
+    const { existsSync, writeFileSync } = await import("node:fs");
+    const artifactDir = "/opt/cursor/artifacts";
+    if (existsSync(artifactDir)) {
+      writeFileSync(
+        `${artifactDir}/ui-explain-payload.json`,
+        `${JSON.stringify(uiExplainBody(day), null, 2)}\n`,
+      );
+    }
   });
 
   it("rejects an explain reply that cites an amount nobody recorded", async () => {
@@ -545,7 +611,8 @@ describe("explain validators for the live UI payload", () => {
       now: 11_100,
       fetchImpl: async () =>
         geminiOf({
-          explanation: "Ada bon tersembunyi Rp99.000. Selisih lebih Rp15.000.",
+          warmth: "",
+          claims: [{ kind: "gap", entryId: null, amount: 99_000, sign: "lebih" }],
         }),
     });
     spy.mockRestore();
@@ -554,7 +621,7 @@ describe("explain validators for the live UI payload", () => {
     expect(body.provider).toBeUndefined();
     expect(body.model).toBeUndefined();
     expect(body.warning).toMatch(/tanpa AI/i);
-    expect(warnings.join(" ")).toContain('"reason":"ungrounded"');
+    expect(warnings.join(" ")).toContain('"reason":"relation"');
   });
 
   it("rejects an explain reply that is not the schema", async () => {
@@ -599,6 +666,104 @@ describe("explain validators for the live UI payload", () => {
     expect(body.warning).toMatch(/tanpa AI/i);
     expect(warnings.join(" ")).toContain('"reason":"provider_error"');
     expect(warnings.join(" ")).not.toContain("gemini-secret");
+  });
+});
+
+describe("structured closing claims", () => {
+  it("rejects a combined semua tunai claim that uses a valid Rp0", async () => {
+    const day = uiReproDay();
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((message) => {
+      warnings.push(String(message));
+    });
+    const response = await handleExplain(request(uiExplainBody(day), "10.5.0.1"), {
+      apiKey: "test-key",
+      models: "gemini-3-flash-preview",
+      buckets: new Map<string, Bucket>(),
+      now: 12_000,
+      fetchImpl: async () =>
+        geminiOf({
+          ...validClaims(day),
+          warmth: "Kalau semua tunai selisihnya pas.",
+        }),
+    });
+    spy.mockRestore();
+    const body = await response.json();
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
+    expect(warnings.join(" ")).toContain('"reason":"hypothetical"');
+    expect(body.explanation).toContain('Catatan "es jeruk 15rb" cara bayarnya belum jelas.');
+    expect(body.explanation).not.toMatch(/semua tunai/i);
+  });
+
+  it("rejects Rp0 as the whole gap, 45000 on es teh, and the wrong gap sign", async () => {
+    const day = uiReproDay();
+    const teh = day.entries.find((entry) => entry.id === "ui-entry-teh");
+    const cases = [
+      { kind: "gap", entryId: null, amount: 0, sign: "pas" },
+      { kind: "unclear_note", entryId: teh?.id, amount: 45_000, sign: null },
+      { kind: "gap", entryId: null, amount: 15_000, sign: "kurang" },
+    ];
+    for (const [index, badClaim] of cases.entries()) {
+      resetGeminiCache();
+      const warnings: string[] = [];
+      const spy = vi.spyOn(console, "warn").mockImplementation((message) => {
+        warnings.push(String(message));
+      });
+      const claims = validClaims(day).claims.map((claim) =>
+        claim.kind === badClaim.kind && claim.entryId === badClaim.entryId ? badClaim : claim,
+      );
+      const response = await handleExplain(request(uiExplainBody(day), `10.5.1.${index}`), {
+        apiKey: "test-key",
+        models: "gemini-3-flash-preview",
+        buckets: new Map<string, Bucket>(),
+        now: 13_000 + index,
+        fetchImpl: async () => geminiOf({ warmth: "Sudah kelihatan mana yang perlu dicek.", claims }),
+      });
+      spy.mockRestore();
+      const body = await response.json();
+      expect(body.parser).toBe("rule");
+      expect(body.provider).toBeUndefined();
+      expect(body.model).toBeUndefined();
+      expect(warnings.join(" ")).toContain('"reason":"relation"');
+      expect(body.explanation).toContain("belum terjelaskan");
+    }
+  });
+
+  it("appends one calculator what-if per open note", () => {
+    const day = uiReproDay();
+    const result = closeDay(day);
+    const lines = whatIfSentences(result);
+    expect(lines).toHaveLength(result.whatIfs.length);
+    expect(new Set(lines).size).toBe(lines.length);
+    for (const item of result.whatIfs) {
+      const line = lines.find((candidate) => candidate.includes(`"${item.sourceText}"`));
+      expect(line).toBeTruthy();
+      expect(line).toContain(`selisih jadi ${item.asTunaiSelisih === 0 ? "pas Rp0" : item.asTunaiSelisih < 0 ? "kurang" : "lebih"}`);
+    }
+    const jeruk = lines.find((line) => line.includes("es jeruk 15rb"));
+    const nasi = lines.find((line) => line.includes("jual nasi campur 3 x 15rb tunai"));
+    expect(jeruk).toContain("pas Rp0");
+    expect(nasi).not.toContain("pas Rp0");
+  });
+
+  it("keeps belum dikonfirmasi distinct from cara bayar belum jelas", () => {
+    const day = uiReproDay();
+    const result = closeDay(day);
+    const summary = explainClose(result);
+    const prompt = explainUserPrompt({ warungName: day.warungName, result, entries: day.entries });
+    const nasi = 'Catatan "jual nasi campur 3 x 15rb tunai" belum dikonfirmasi';
+    const jeruk = 'Catatan "es jeruk 15rb" cara bayarnya belum jelas';
+    const teh = 'Catatan "es teh 2 10rb" cara bayarnya belum jelas';
+    expect(summary).toContain(nasi);
+    expect(summary).toContain(jeruk);
+    expect(summary).toContain(teh);
+    expect(summary).not.toContain('Catatan "jual nasi campur 3 x 15rb tunai" cara bayarnya belum jelas');
+    expect(summary).not.toContain('Catatan "es jeruk 15rb" belum dikonfirmasi');
+    expect(summary).not.toContain('Catatan "es teh 2 10rb" belum dikonfirmasi');
+    expect(prompt).toContain("belum dikonfirmasi");
+    expect(prompt).toContain("cara bayar belum jelas");
+    expect(prompt.toLowerCase()).not.toContain("kalau");
   });
 });
 
