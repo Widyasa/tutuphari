@@ -280,19 +280,35 @@ export function explainUserPrompt(input: {
       ? "Uang yang dihitung belum diisi."
       : `Uang yang dihitung ${formatRupiah(result.countedCash)}. Seharusnya di laci ${formatRupiah(result.expectedCash)}. Selisih ${gapPhrase(result.selisih)}.`,
   ];
-  if (result.selisih === 0) {
-    lines.push("Selisih pas. Tetap wajib satu klaim selisih berjumlah 0 dengan tanda pas, tanpa menunjuk catatan. Jangan menghilangkan klaim selisih.");
+  if (result.selisih != null && result.verdict !== "belum_dihitung") {
+    lines.push(
+      `Klaim selisih wajib berjumlah ${Math.abs(result.selisih)} dengan tanda ${result.verdict}, tanpa menunjuk catatan. Jangan menggantinya dengan nominal catatan.`,
+    );
   }
   if (result.penjualanQris > 0) {
     lines.push(`Omzet QRIS ${formatRupiah(result.penjualanQris)}. QRIS tidak masuk laci.`);
     lines.push(`Klaim omzet QRIS wajib berjumlah ${result.penjualanQris}, tanpa tanda lebih, kurang, atau pas, dan tanpa menunjuk catatan.`);
   }
-  lines.push("Catatan hari ini:");
-  for (const entry of entries) {
-    if (entry.amount == null) continue;
-    lines.push(
-      `- id ${entry.id}: "${entry.sourceText}": ${TYPE_LABEL[entry.type]}, ${spokenState(entry)}, ${formatRupiah(entry.amount)}.`,
-    );
+  const outside = new Set(result.whatIfs.map((item) => item.entryId));
+  const countedNotes = entries.filter((entry) => entry.amount != null && !outside.has(entry.id));
+  const openNotes = entries.filter((entry) => entry.amount != null && outside.has(entry.id));
+  if (countedNotes.length > 0) {
+    lines.push("Sudah masuk hitungan. Jangan membuat klaim untuk catatan ini:");
+    for (const entry of countedNotes) {
+      if (entry.amount == null) continue;
+      lines.push(`- "${entry.sourceText}": ${TYPE_LABEL[entry.type]}, ${spokenState(entry)}, ${formatRupiah(entry.amount)}.`);
+    }
+  }
+  if (openNotes.length === 0) {
+    lines.push("Tidak ada catatan di luar hitungan. Jangan membuat klaim catatan.");
+  } else {
+    lines.push("Belum masuk hitungan. Satu klaim untuk tiap catatan ini:");
+    for (const entry of openNotes) {
+      if (entry.amount == null) continue;
+      lines.push(
+        `- id ${entry.id}: "${entry.sourceText}": ${TYPE_LABEL[entry.type]}, ${spokenState(entry)}, ${formatRupiah(entry.amount)}.`,
+      );
+    }
   }
   lines.push("Isi claims saja. Jangan menulis pengandaian dan jangan menggabungkan catatan.");
   return lines.join("\n");
@@ -340,9 +356,26 @@ function isExplainClaim(value: unknown): value is ExplainClaim {
   );
 }
 
+export type ClaimFault =
+  | "not_counted"
+  | "gap_missing"
+  | "gap_count"
+  | "gap_target"
+  | "gap_sign"
+  | "gap_amount"
+  | "qris_missing"
+  | "qris_mismatch"
+  | "note_missing"
+  | "note_extra"
+  | "note_mismatch";
+
 export type ExplainAssessment =
   | { ok: true; explanation: string }
-  | { ok: false; reason: "schema" | "relation" | "incomplete" | "phrasing" | "hypothetical" };
+  | {
+      ok: false;
+      reason: "schema" | "relation" | "incomplete" | "phrasing" | "hypothetical";
+      detail?: ClaimFault;
+    };
 
 /** Prove every claim. A true number in the wrong place is still a failure. */
 export function assessExplanation(input: {
@@ -352,7 +385,7 @@ export function assessExplanation(input: {
 }): ExplainAssessment {
   if (!matchesExplainSchema(input.model)) return { ok: false, reason: "schema" };
   const relation = claimRelation(input.model.claims, input.result);
-  if (relation) return { ok: false, reason: relation };
+  if (relation) return { ok: false, reason: relation.reason, detail: relation.detail };
   const warmth = warmthProblem(input.model.warmth, input.entries);
   if (warmth) return { ok: false, reason: warmth };
   return {
@@ -364,33 +397,33 @@ export function assessExplanation(input: {
 function claimRelation(
   claims: ExplainClaim[],
   result: CloseResult,
-): "relation" | "incomplete" | null {
+): { reason: "relation" | "incomplete"; detail: ClaimFault } | null {
   if (result.selisih == null || result.countedCash == null || result.verdict === "belum_dihitung") {
-    return "incomplete";
+    return { reason: "incomplete", detail: "not_counted" };
   }
   const gaps = claims.filter((claim) => claim.kind === "gap");
-  if (gaps.length === 0) return "incomplete";
-  if (gaps.length !== 1) return "relation";
+  if (gaps.length === 0) return { reason: "incomplete", detail: "gap_missing" };
+  if (gaps.length !== 1) return { reason: "relation", detail: "gap_count" };
   const gap = gaps[0];
-  if (gap.entryId !== null || gap.sign !== result.verdict || gap.amount !== Math.abs(result.selisih)) {
-    return "relation";
-  }
+  if (gap.entryId !== null) return { reason: "relation", detail: "gap_target" };
+  if (gap.sign !== result.verdict) return { reason: "relation", detail: "gap_sign" };
+  if (gap.amount !== Math.abs(result.selisih)) return { reason: "relation", detail: "gap_amount" };
 
   const qrisClaims = claims.filter((claim) => claim.kind === "qris_not_in_drawer");
   if (result.penjualanQris > 0) {
-    if (qrisClaims.length === 0) return "incomplete";
+    if (qrisClaims.length === 0) return { reason: "incomplete", detail: "qris_missing" };
     if (
       qrisClaims.length !== 1 ||
       qrisClaims[0].entryId !== null ||
       qrisClaims[0].amount !== result.penjualanQris ||
       qrisClaims[0].sign !== null
     ) {
-      return "relation";
+      return { reason: "relation", detail: "qris_mismatch" };
     }
   } else if (
     qrisClaims.some((claim) => claim.amount !== 0 || claim.entryId !== null || claim.sign !== null)
   ) {
-    return "relation";
+    return { reason: "relation", detail: "qris_mismatch" };
   }
 
   const expected = new Map(
@@ -402,14 +435,14 @@ function claimRelation(
   const noteClaims = claims.filter(
     (claim) => claim.kind === "unclear_note" || claim.kind === "unconfirmed_note",
   );
-  if (noteClaims.length < expected.size) return "incomplete";
-  if (noteClaims.length !== expected.size) return "relation";
+  if (noteClaims.length < expected.size) return { reason: "incomplete", detail: "note_missing" };
+  if (noteClaims.length !== expected.size) return { reason: "relation", detail: "note_extra" };
   for (const claim of noteClaims) {
-    if (!claim.entryId) return "relation";
+    if (!claim.entryId) return { reason: "relation", detail: "note_mismatch" };
     const kind = expected.get(claim.entryId);
     const item = result.whatIfs.find((candidate) => candidate.entryId === claim.entryId);
     if (!kind || !item || claim.kind !== kind || claim.amount !== item.amount || claim.sign !== null) {
-      return "relation";
+      return { reason: "relation", detail: "note_mismatch" };
     }
   }
   return null;
