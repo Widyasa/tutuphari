@@ -2,6 +2,7 @@ import { closeDay } from "@/lib/calculator";
 import { explainClose } from "@/lib/explain";
 import { formatLongDate } from "@/lib/dates";
 import { formatRupiah } from "@/lib/rupiah";
+import { CASH_DISCLAIMER } from "@/lib/copy";
 import { METHOD_LABEL, TYPE_LABEL, type DayRecord } from "@/lib/types";
 
 function cell(value: string | number | null): string {
@@ -76,7 +77,7 @@ export function toWhatsApp(day: DayRecord): string {
     "",
     explainClose(result),
     "",
-    "Alat bantu cek kas, bukan laporan keuangan atau pajak. AI bisa salah.",
+    CASH_DISCLAIMER,
   ];
   return lines.join("\n");
 }
