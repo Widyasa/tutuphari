@@ -76,16 +76,10 @@ export function explainClose(result: CloseResult): string {
     return "Isi dulu uang yang kamu hitung di laci.";
   }
 
-  const lines = [gapSentence(result)];
+  const lines = [gapSentence(result), ...drawerFactLines(result)];
   if (result.penjualanQris > 0) lines.push(qrisSentence(result));
   lines.push(...whatIfSentences(result));
-  if (result.selisih !== 0) {
-    lines.push(
-      result.whatIfs.length > 0
-        ? "Angka yang masih tersisa setelah catatan itu belum terjelaskan."
-        : "Belum terjelaskan. Tidak ada catatan yang masih menggantung untuk menutup angka ini.",
-    );
-  }
+  lines.push(...gapCheckLines(result));
   return lines.join("\n");
 }
 
@@ -96,6 +90,53 @@ function gapSentence(result: CloseResult): string {
 
 function qrisSentence(result: CloseResult): string {
   return `QRIS tidak masuk laci. Omzet QRIS ${formatRupiah(result.penjualanQris)}.`;
+}
+
+function namedAmounts(parts: [string, number][]): string {
+  return parts
+    .filter(([, amount]) => amount > 0)
+    .map(([label, amount]) => `${label} ${formatRupiah(amount)}`)
+    .join(", ");
+}
+
+/** Cash movements the calculator already counted. Zero rows are left out. */
+export function drawerFactLines(result: CloseResult): string[] {
+  const lines: string[] = [];
+  const masuk = namedAmounts([
+    ["modal", result.modalAwal],
+    ["penjualan tunai", result.penjualanTunai],
+    ["kasbon dibayar tunai", result.kasbonBayarTunai],
+    ["setor tunai", result.setorTunai],
+  ]);
+  const keluar = namedAmounts([
+    ["pengeluaran tunai", result.pengeluaranTunai],
+    ["ambil pribadi tunai", result.ambilPribadiTunai],
+    ["kasbon keluar tunai", result.kasbonKeluarTunai],
+    ["tarik tunai", result.tarikTunai],
+  ]);
+  if (masuk) lines.push(`Yang menambah laci: ${masuk}.`);
+  if (keluar) lines.push(`Yang mengurangi laci: ${keluar}.`);
+  return lines;
+}
+
+function gapCheckLines(result: CloseResult): string[] {
+  if (result.selisih === 0) {
+    return ["Tidak ada selisih yang tersisa untuk dijelaskan dari catatan ini."];
+  }
+  const lines = [
+    result.whatIfs.length > 0
+      ? "Angka yang masih tersisa setelah catatan itu belum terjelaskan."
+      : "Belum terjelaskan. Tidak ada catatan yang masih menggantung untuk menutup angka ini.",
+    "Penyebab selisih ini tidak bisa ditentukan dari catatan yang sudah masuk hitungan.",
+    "Periksa ulang uang kertas dan koin di laci.",
+  ];
+  if (result.whatIfs.length === 0 && (result.selisih ?? 0) > 0) {
+    lines.push("Periksa uang masuk yang belum dicatat.");
+  }
+  if (result.whatIfs.length === 0 && (result.selisih ?? 0) < 0) {
+    lines.push("Periksa pengeluaran tunai, ambil pribadi, kasbon, atau tarik yang belum dicatat.");
+  }
+  return lines;
 }
 
 function noteStatusLine(item: WhatIf): string {
@@ -239,8 +280,12 @@ export function explainUserPrompt(input: {
       ? "Uang yang dihitung belum diisi."
       : `Uang yang dihitung ${formatRupiah(result.countedCash)}. Seharusnya di laci ${formatRupiah(result.expectedCash)}. Selisih ${gapPhrase(result.selisih)}.`,
   ];
+  if (result.selisih === 0) {
+    lines.push("Selisih pas. Tetap wajib satu klaim selisih berjumlah 0 dengan tanda pas, tanpa menunjuk catatan. Jangan menghilangkan klaim selisih.");
+  }
   if (result.penjualanQris > 0) {
     lines.push(`Omzet QRIS ${formatRupiah(result.penjualanQris)}. QRIS tidak masuk laci.`);
+    lines.push(`Klaim omzet QRIS wajib berjumlah ${result.penjualanQris}, tanpa tanda lebih, kurang, atau pas, dan tanpa menunjuk catatan.`);
   }
   lines.push("Catatan hari ini:");
   for (const entry of entries) {
@@ -394,13 +439,11 @@ export function renderAcceptedExplanation(
 ): string {
   const lines: string[] = [];
   if (warmth.trim()) lines.push(warmth.trim());
-  if (claims.some((claim) => claim.kind === "gap")) lines.push(gapSentence(result));
+  if (claims.some((claim) => claim.kind === "gap")) {
+    lines.push(gapSentence(result), ...drawerFactLines(result), ...gapCheckLines(result));
+  }
   if (claims.some((claim) => claim.kind === "qris_not_in_drawer") && result.penjualanQris > 0) {
     lines.push(qrisSentence(result));
-  }
-  for (const item of result.whatIfs) {
-    if (!claims.some((claim) => claim.entryId === item.entryId)) continue;
-    lines.push(noteStatusLine(item));
   }
   lines.push(...whatIfSentences(result));
   return lines.join("\n");
