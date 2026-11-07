@@ -14,7 +14,7 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 
 - Open the day with the cash already in the drawer.
 - Type free-text notes, or paste a whole day. Optional voice input when the browser supports Indonesian speech recognition.
-- Each note becomes cards the owner can accept, edit, or delete. The original sentence stays on the card.
+- An unconfirmed card in Konfirmasi can be accepted, edited, or deleted. The original sentence stays on the card. A confirmed row, and a day already closed, is not edited here. This is not a claim that every acceptance item is done.
 - Ambiguous notes, especially a sale with no payment method, stay out of the total until the owner chooses.
 - Tutup hari: counted cash in, uang laci seharusnya and selisih out. QRIS is kept outside the drawer. The arithmetic is deterministic.
 - Light mode only. Three destinations: Hari Ini, Kasbon, Riwayat. Catat, cek, hitung, and bagikan are a sub-flow, not a four-item menu.
