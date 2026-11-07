@@ -46,7 +46,7 @@ The model never decides the selisih. Expected cash is:
 
 QRIS and transfer do not enter the drawer. Unconfirmed notes and unknown methods do not either.
 
-If `GEMINI_API_KEY` is missing, the quota fails, or the network fails, a rule-based parser still reads amounts such as `15rb`, `15k`, `1,5jt`, and `1.500.000`, plus keywords for cash, QRIS, withdrawals, and kasbon. Those cards are marked "Tanpa AI". The same parser runs in the browser if the request never returns, so the page does not hard-fail.
+The rule parser reads amounts such as `15rb`, `15k`, `1,5jt`, and `1.500.000`, plus keywords for cash, QRIS, withdrawals, and kasbon. It runs when neither `XAI_API_KEY` nor `GEMINI_API_KEY` is configured, when the rate limit answers, or when every configured provider fails. A missing Gemini key does not skip straight to rules while an xAI key is set: xAI is called first, and the Gemini chain runs only if xAI fails and a Gemini key is present. If only the Gemini key is set, that chain is the provider. Rule cards are marked "Tanpa AI". The same parser runs in the browser if the request never returns, so the page does not hard-fail. `parser` is `ai` only after a provider returns schema-valid output. A rule reading is not an AI success.
 
 The extract and explain routes are rate-limited (20 requests / 10 minutes per IP, 60 per instance) and reject notes longer than 8.000 characters. The limit lives in memory on each server instance, which is enough to avoid burning a free-tier key and is not a global quota.
 
@@ -73,11 +73,11 @@ Requires Node.js 22+.
 ```bash
 npm install
 cp .env.example .env.local
-# Optional: put a Google AI Studio key in GEMINI_API_KEY
+# Optional: XAI_API_KEY for Grok first, GEMINI_API_KEY for the fallback chain
 npm run dev
 ```
 
-Open the URL printed by Next.js. Use a narrow window or a phone. Tap **Coba demo** to walk the sample day without a key. Without `GEMINI_API_KEY`, new notes still parse through the rule fallback.
+Open the URL printed by Next.js. Use a narrow window or a phone. Tap **Coba demo** to walk the sample day without a key. With neither `XAI_API_KEY` nor `GEMINI_API_KEY`, new notes parse through the rule fallback. One configured key uses that provider. Both keys try xAI first.
 
 ```bash
 npm test
@@ -110,6 +110,7 @@ None. There is no login. Judges use **Coba demo** on the live site.
 - The AI can misread a note. The owner has to confirm. A leftover gap is left unexplained on purpose.
 - This is not an official cash report, tax record, or accounting system.
 - Demo figures are synthetic.
+- Kasbon payments already stored before the remaining-debt check stay as saved. A new repayment is rejected when that person has no remaining debt, or when the amount is larger than the debt still owed. Old overpayments are not deleted, rewritten, or turned into a new credit display. What to do with an existing credit is undecided.
 
 ## Third-party Resources / Credits
 
