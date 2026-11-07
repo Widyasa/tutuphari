@@ -29,7 +29,7 @@ export function normalizeDraftEdit(input: {
   return {
     type: input.type,
     amount: Math.round(input.amount),
-    method: draftShowsMethod(input.type) ? input.method : input.type === "lainnya" ? "tidak_tahu" : "tunai",
+    method: input.method,
     counterparty: draftShowsName(input.type) ? name || null : null,
   };
 }

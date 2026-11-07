@@ -3,6 +3,9 @@ import type { ExtractedEntry } from "@/lib/types";
 
 export const CLIENT_FETCH_TIMEOUT_MS = 9_000;
 
+/** Stays above the server extract budget so the phone does not give up first. */
+export const EXTRACT_CLIENT_TIMEOUT_MS = 16_000;
+
 export type ExtractResponse = {
   parser: "ai" | "rule";
   entries: ExtractedEntry[];
@@ -21,7 +24,7 @@ export async function extractNote(text: string, options: ClientOptions = {}): Pr
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text }),
-      signal: AbortSignal.timeout(options.timeoutMs ?? CLIENT_FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? EXTRACT_CLIENT_TIMEOUT_MS),
     });
     const data = (await response.json()) as Partial<ExtractResponse> & {
       error?: string;

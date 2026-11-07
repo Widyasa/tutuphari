@@ -15,7 +15,8 @@ import {
   whatIfSentences,
 } from "@/lib/explain";
 import { XAI_MODEL_DEFAULT } from "@/lib/xai";
-import { CLIENT_FETCH_TIMEOUT_MS, extractNote, explainDay } from "@/lib/client-api";
+import { CLIENT_FETCH_TIMEOUT_MS, EXTRACT_CLIENT_TIMEOUT_MS, extractNote, explainDay } from "@/lib/client-api";
+import { EXTRACT_SERVER_BUDGET_MS } from "@/lib/gemini";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -768,7 +769,30 @@ describe("structured closing claims", () => {
 });
 
 describe("client timeouts", () => {
-  it("aborts a fetch that never resolves after about 9s and uses the local parser", async () => {
+  it("keeps a provider timeout as a rule reading instead of calling it AI", async () => {
+    expect(EXTRACT_SERVER_BUDGET_MS).toBeGreaterThan(8_000);
+    const response = await handleExtract(request({ text: "jual kopi 20rb tunai" }, "10.9.9.9"), {
+      xaiApiKey: "xai-secret",
+      buckets: new Map<string, Bucket>(),
+      now: 20_000,
+      budgetMs: 450,
+      fetchImpl: (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("aborted"), { name: "TimeoutError" }));
+          });
+        }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.parser).toBe("rule");
+    expect(body.provider).toBeUndefined();
+    expect(body.model).toBeUndefined();
+    expect(body.warning).toContain("AI sedang gagal");
+    expect(body.entries[0]).toMatchObject({ type: "penjualan", amount: 20_000, method: "tunai" });
+  });
+
+  it("aborts a fetch that never resolves after about 16s and uses the local parser", async () => {
     const started = Date.now();
     let abortedAt = 0;
     const fetchImpl: typeof fetch = (_input, init) =>
@@ -782,12 +806,13 @@ describe("client timeouts", () => {
     const result = await extractNote("jual nasi campur 3 x 15rb tunai", { fetchImpl });
     const elapsed = abortedAt - started;
     expect(CLIENT_FETCH_TIMEOUT_MS).toBe(9_000);
-    expect(elapsed).toBeGreaterThanOrEqual(8_500);
-    expect(elapsed).toBeLessThan(11_000);
+    expect(EXTRACT_CLIENT_TIMEOUT_MS).toBe(16_000);
+    expect(elapsed).toBeGreaterThanOrEqual(15_500);
+    expect(elapsed).toBeLessThan(18_000);
     expect(result.parser).toBe("rule");
     expect(result.entries[0]).toMatchObject({ amount: 45_000, method: "tunai", parser: "rule" });
     expect(result.warning).toMatch(/tanpa AI/i);
-  }, 15_000);
+  }, 20_000);
 
   it("returns no AI summary when explain does not settle", async () => {
     const fetchImpl: typeof fetch = (_input, init) =>

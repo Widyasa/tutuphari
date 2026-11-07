@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { closeDay, cashSign } from "@/lib/calculator";
+import { CASH_DISCLAIMER } from "@/lib/copy";
 import { extractNote } from "@/lib/client-api";
 import { createDay } from "@/lib/day";
 import { draftConfirmBlock, draftShowsMethod, draftShowsName, normalizeDraftEdit } from "@/lib/draft-edit";
@@ -990,11 +991,51 @@ function StartScreen({
       <Button type="button" variant="outline" className="w-full" data-testid="start-demo" onClick={onDemo}>
         Coba demo
       </Button>
+      <p className="text-sm leading-relaxed text-muted-foreground">{CASH_DISCLAIMER}</p>
     </main>
   );
 }
 
 function CatatPane({ draft, onDraft }: { draft: string; onDraft: (text: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
+  function listen() {
+    const host = window as Window & {
+      SpeechRecognition?: new () => {
+        lang: string;
+        start: () => void;
+        onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+      };
+      webkitSpeechRecognition?: new () => {
+        lang: string;
+        start: () => void;
+        onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+      };
+    };
+    const Ctor = host.SpeechRecognition ?? host.webkitSpeechRecognition;
+    if (!Ctor) {
+      setVoiceError("Browser ini tidak punya suara. Ketik saja.");
+      return;
+    }
+    const recognition = new Ctor();
+    recognition.lang = "id-ID";
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim() ?? "";
+      if (!transcript) return;
+      onDraft(draft.trim() ? `${draft.trim()} ${transcript}` : transcript);
+    };
+    recognition.onerror = () => setVoiceError("Suara tidak tertangkap. Ketik saja.");
+    recognition.onend = () => setListening(false);
+    setVoiceError(null);
+    setListening(true);
+    recognition.start();
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold tracking-tight">Catat</h1>
@@ -1007,6 +1048,10 @@ function CatatPane({ draft, onDraft }: { draft: string; onDraft: (text: string) 
         placeholder="contoh: jual kopi 1 gelas 5rb tunai"
         className="mt-2 min-h-32 text-base"
       />
+      {voiceError && <p className="mt-2 text-sm text-[#991B1B]" role="status">{voiceError}</p>}
+      <Button type="button" variant="outline" className="mt-3 h-12" aria-pressed={listening} onClick={listen}>
+        {listening ? "Dengar…" : "Suara"}
+      </Button>
     </div>
   );
 }
@@ -1432,7 +1477,7 @@ function HasilPane({
         </p>
       </div>
       <p className="mt-4 text-sm leading-relaxed whitespace-pre-wrap">{explainClose(result)}</p>
-      <p className="mt-3 text-xs text-muted-foreground">{day.warungName}. Bukan laporan keuangan atau pajak.</p>
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{day.warungName}. {CASH_DISCLAIMER}</p>
     </div>
   );
 }
@@ -1567,6 +1612,7 @@ function HomePane({
           Lanjutkan catat
         </Button>
       </div>
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{CASH_DISCLAIMER}</p>
     </div>
     <div className="hidden lg:block">
       <h1 className="text-[1.875rem] font-bold tracking-[-0.025em]">Hari ini</h1>
@@ -1602,6 +1648,7 @@ function HomePane({
             <p className="flex justify-between py-3 text-sm"><span>Omzet tunai</span><span className="money font-semibold">{formatRupiah(omzet)}</span></p>
             <p className="flex justify-between py-3 text-sm"><span>Total tunai masuk</span><span className="money font-semibold">{formatRupiah(masuk)}</span></p>
           </div>
+          <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{CASH_DISCLAIMER}</p>
           <div className="mt-5 flex items-center justify-between gap-4 border-t border-border pt-5">
             <p className="text-[13px] text-muted-foreground">Catatan baru masih bisa ditambahkan.</p>
             <Button type="button" variant="ghost" className="h-12" onClick={onCatat}>Catat lagi</Button>

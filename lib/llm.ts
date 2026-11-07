@@ -79,8 +79,13 @@ export async function runStructured(options: {
             ? String(error.status)
             : isTimeoutError(error)
               ? "timeout"
-              : "error";
-        logFailure("xai", model, status);
+              : error instanceof SyntaxError
+                ? "json"
+                : error instanceof Error && error.message === "xAI kosong"
+                  ? "empty"
+                  : "error";
+        const name = error instanceof Error ? error.name : "unknown";
+        logFailure("xai", model, `${status} name=${name}`);
         lastError = error;
       }
     } else {

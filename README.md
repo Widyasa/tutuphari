@@ -14,7 +14,8 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 
 - Open the day with the cash already in the drawer.
 - Type free-text notes, or paste a whole day. Optional voice input when the browser supports Indonesian speech recognition.
-- An unconfirmed card in Konfirmasi can be accepted, edited, or deleted. The original sentence stays on the card. A confirmed row, and a day already closed, is not edited here. This is not a claim that every acceptance item is done.
+- An unconfirmed card in Konfirmasi can be accepted, edited, or deleted. Changing the amount keeps the payment method already on the card. The original sentence stays on the card. A confirmed row, and a day already closed, is not edited here.
+- The opening screen and the result both say this is a cash check, not a financial or tax report, and that the AI can be wrong.
 - Ambiguous notes, especially a sale with no payment method, stay out of the total until the owner chooses.
 - Tutup hari: counted cash in, uang laci seharusnya and selisih out. QRIS is kept outside the drawer. The arithmetic is deterministic.
 - Light mode only. Three destinations: Hari Ini, Kasbon, Riwayat. Catat, cek, hitung, and bagikan are a sub-flow, not a four-item menu.
@@ -33,7 +34,7 @@ The person holding the phone is the owner or the cashier: a cheap Android, Bahas
 
 ## AI Implementation
 
-The live model is Grok via xAI, model `grok-4.20-0309-non-reasoning`. Override it with `XAI_MODEL`. It is the cheapest general-purpose model that was tested and still fit the latency budget, not the cheapest model overall. Structured output uses `json_schema` with `strict: true`. The request does not send reasoning parameters. If Grok fails, the server tries the Gemini chain (`GEMINI_MODELS`, otherwise `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, then `gemini-flash-latest`) inside one budget of about 8 seconds. The rule parser runs last. The phone stops waiting after 9 seconds and uses those local rules.
+The live model is Grok via xAI, model `grok-4.20-0309-non-reasoning`. Override it with `XAI_MODEL`. It is the cheapest general-purpose model that was tested and still fit the latency budget, not the cheapest model overall. Structured output uses `json_schema` with `strict: true`. The request does not send reasoning parameters. If Grok fails, the server tries the Gemini chain (`GEMINI_MODELS`, otherwise `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, then `gemini-flash-latest`). A closing sentence stays inside one budget of about 8 seconds, and the phone stops waiting for that call after 9 seconds. Reading a note gets 15 seconds on the server and 16 seconds on the phone, because a multi-line note was cut off at the old 8 second cap while xAI was still working. The rule parser runs last. A timed-out reading is marked as a reading without AI.
 
 Grok, and Gemini when Grok is unavailable, do two jobs on the server:
 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyField } from "@/components/money-field";
+import { CASH_DISCLAIMER } from "@/lib/copy";
 
 const PRESETS = [100_000, 150_000, 200_000, 300_000];
 
@@ -83,7 +84,7 @@ export function OpenScreen({
       </div>
 
       <p className="pt-8 pb-8 text-sm">
-        Alat bantu cek kas, bukan laporan keuangan atau pajak. AI bisa salah — selalu dicek sendiri.
+        {CASH_DISCLAIMER}
       </p>
     </main>
   );
