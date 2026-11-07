@@ -41,18 +41,31 @@ export function progressOf(step: Step): { title: string; meta: string } {
 
 /** Where Tutup hari may start. Hasil stays unreachable until the gate says hitung. */
 export function closeGate(entries: Pick<Entry, "method" | "status" | "needsConfirmation">[]): Step {
-  if (entries.some((entry) => entry.method === "tidak_tahu")) return "ambigu";
-  if (entries.some((entry) => entry.status !== "confirmed" || entry.needsConfirmation)) {
+  if (entries.some((entry) => entry.status !== "confirmed" || entry.needsConfirmation || entry.method === "tidak_tahu")) {
     return "konfirmasi";
   }
   return "hitung";
+}
+
+/** Why the review list cannot continue. Incomplete notes stay on that list. */
+export function reviewBlockMessage(
+  entries: Pick<Entry, "method" | "status" | "needsConfirmation" | "amount">[],
+): string | null {
+  if (canCountDrawer(entries)) return null;
+  if (entries.some((entry) => entry.amount == null || entry.amount <= 0)) {
+    return "Masih ada catatan yang nominalnya belum diisi. Lengkapi atau hapus dulu.";
+  }
+  if (entries.some((entry) => entry.method === "tidak_tahu")) {
+    return "Masih ada catatan yang cara bayarnya belum dipilih.";
+  }
+  return "Masih ada catatan yang belum dikonfirmasi.";
 }
 
 export function canCountDrawer(entries: Pick<Entry, "method" | "status" | "needsConfirmation">[]): boolean {
   return closeGate(entries) === "hitung";
 }
 
-export function backTarget(state: NavState, hasUnclear: boolean): NavState {
+export function backTarget(state: NavState): NavState {
   if (!state.step) return state;
   const draft = state.draft;
   switch (state.step) {
@@ -63,7 +76,7 @@ export function backTarget(state: NavState, hasUnclear: boolean): NavState {
     case "catat":
       return { dest: "hari", step: null, draft };
     case "konfirmasi":
-      return { dest: state.dest, step: hasUnclear ? "ambigu" : "catat", draft };
+      return { dest: state.dest, step: "catat", draft };
     case "hitung":
       return { dest: state.dest, step: "konfirmasi", draft };
     case "hasil":
@@ -89,7 +102,7 @@ export function reduceNav(state: NavState, action: NavAction): NavState {
     case "step":
       return { ...state, step: action.step };
     case "back":
-      return backTarget(state, action.hasUnclear);
+      return backTarget(state);
     case "home":
       return { ...state, dest: "hari", step: null };
   }
