@@ -240,7 +240,7 @@ export async function handleExplain(
       maxOutputTokens: 512,
     });
     const judged = assessExplanation({ model: ai.data, result, entries });
-    if (!judged.ok) return rejectExplain(local, judged.reason, ai);
+    if (!judged.ok) return rejectExplain(local, judged.reason, ai, judged.detail);
     return Response.json({
       parser: "ai",
       explanation: judged.explanation,
@@ -263,6 +263,7 @@ function rejectExplain(
     | "hypothetical"
     | "provider_error",
   meta?: { provider: string; model: string },
+  detail?: string,
 ): Response {
   console.warn(
     JSON.stringify({
@@ -271,6 +272,7 @@ function rejectExplain(
       model: meta?.model ?? null,
       status: "rejected",
       reason,
+      detail: detail ?? null,
     }),
   );
   return ruleExplain(explanation);

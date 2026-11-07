@@ -115,6 +115,8 @@ Saat selisih pas, tetap wajib tepat satu gap dengan amount 0, sign pas, dan entr
 qris_not_in_drawer hanya untuk omzet QRIS yang tidak masuk laci. entryId-nya wajib null dan sign-nya wajib null. Amount claim itu adalah omzet QRIS, bukan selisih laci. Jangan memakai lebih, kurang, atau pas pada claim itu.
 unclear_note untuk catatan yang cara bayarnya belum jelas. entryId memakai id catatan itu.
 unconfirmed_note untuk catatan yang cara bayarnya sudah tertulis tetapi belum dikonfirmasi. entryId memakai id catatan itu.
+Catatan yang sudah dikonfirmasi sudah masuk hitungan. Jangan membuat unclear_note atau unconfirmed_note untuk catatan itu.
+Jika tidak ada catatan di luar hitungan, claims tidak boleh berisi unclear_note atau unconfirmed_note.
 Jangan menggabungkan beberapa catatan menjadi satu perkiraan.
 Jangan mengarang transaksi.`;
 

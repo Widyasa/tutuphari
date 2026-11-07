@@ -135,7 +135,8 @@ describe("balanced drawer explanation", () => {
     const day = demoPasDay();
     const result = closeDay(day);
     const prompt = explainUserPrompt({ warungName: day.warungName, result, entries: day.entries });
-    expect(prompt).toContain("klaim selisih berjumlah 0 dengan tanda pas");
+    expect(prompt).toContain("Klaim selisih wajib berjumlah 0 dengan tanda pas");
+    expect(prompt).toContain("Jangan membuat klaim catatan");
     expect(prompt).toContain(`berjumlah ${result.penjualanQris}`);
     expect(prompt).not.toMatch(/entryId|qris_not_in_drawer/);
   });
@@ -169,5 +170,121 @@ describe("balanced drawer explanation", () => {
       expect(judged.ok).toBe(true);
       if (judged.ok) expect(judged.explanation).toContain("tidak bisa ditentukan");
     }
+  });
+});
+
+function confirmed(over: Partial<Entry> & Pick<Entry, "id" | "type" | "amount" | "method" | "sourceText">): Entry {
+  return {
+    noteId: "n",
+    item: null,
+    qty: null,
+    counterparty: null,
+    confidence: 1,
+    needsConfirmation: false,
+    question: null,
+    parser: "ai",
+    status: "confirmed",
+    ...over,
+  };
+}
+
+describe("kasbon explain responses observed from the provider", () => {
+  const kasbonOut = confirmed({
+    id: "kasbon-out",
+    type: "kasbon_keluar",
+    amount: 30_000,
+    method: "tunai",
+    sourceText: "bu wayan kasbon 30rb tunai",
+    counterparty: "bu wayan",
+  });
+  const sale = confirmed({
+    id: "sale-tunai",
+    type: "penjualan",
+    amount: 50_000,
+    method: "tunai",
+    sourceText: "jual nasi 50rb tunai",
+    item: "nasi",
+  });
+
+  it("rejects the captured pas response that marks a confirmed kasbon as unconfirmed", () => {
+    const entries = [kasbonOut];
+    const result = closeDay({ modalAwal: 200_000, entries, countedCash: 170_000, countedQris: null });
+    expect(result.selisih).toBe(0);
+    const judged = assessExplanation({
+      model: {
+        warmth: "selamat istirahat",
+        claims: [
+          { kind: "gap", entryId: null, amount: 0, sign: "pas" },
+          { kind: "unconfirmed_note", entryId: "bu wayan kasbon 30rb tunai", amount: 30_000, sign: null },
+        ],
+      },
+      result,
+      entries,
+    });
+    expect(judged.ok).toBe(false);
+    if (!judged.ok) {
+      expect(judged.reason).toBe("relation");
+      expect(judged.detail).toBe("note_extra");
+    }
+    const prompt = explainUserPrompt({ warungName: "Warung Uji", result, entries });
+    expect(prompt).toContain("Sudah masuk hitungan");
+    expect(prompt).not.toContain("id kasbon-out");
+  });
+
+  it("rejects the captured surplus and shortage responses that add note claims for confirmed rows", () => {
+    const entries = [sale, kasbonOut];
+    const surplus = closeDay({ modalAwal: 200_000, entries, countedCash: 250_000, countedQris: null });
+    const shortage = closeDay({ modalAwal: 200_000, entries, countedCash: 10_000, countedQris: null });
+    expect(surplus.selisih).toBe(30_000);
+    expect(shortage.selisih).toBe(-210_000);
+    for (const [result, sign, amount] of [
+      [surplus, "lebih", 30_000],
+      [shortage, "kurang", 210_000],
+    ] as const) {
+      const judged = assessExplanation({
+        model: {
+          warmth: sign === "lebih" ? "selisih lebih" : "Maaf ada selisih.",
+          claims: [
+            { kind: "gap", entryId: null, amount, sign },
+            { kind: "unconfirmed_note", entryId: "sale-tunai", amount: 50_000, sign: null },
+            { kind: "unconfirmed_note", entryId: "kasbon-out", amount: 30_000, sign: null },
+          ],
+        },
+        result,
+        entries,
+      });
+      expect(judged.ok).toBe(false);
+      if (!judged.ok) expect(judged.detail).toBe("note_extra");
+      const accepted = assessExplanation({
+        model: { warmth: "Perlu dicek.", claims: [{ kind: "gap", entryId: null, amount, sign }] },
+        result,
+        entries,
+      });
+      expect(accepted.ok).toBe(true);
+      if (accepted.ok) {
+        expect(accepted.explanation).toContain("kasbon keluar tunai Rp30.000");
+        expect(accepted.explanation).toContain("tidak bisa ditentukan");
+      }
+    }
+  });
+
+  it("still rejects a wrong gap amount or direction on a kasbon day", () => {
+    const entries = [kasbonOut];
+    const result = closeDay({ modalAwal: 200_000, entries, countedCash: 140_000, countedQris: null });
+    expect(result.selisih).toBe(-30_000);
+    const wrongAmount = assessExplanation({
+      model: { warmth: "", claims: [{ kind: "gap", entryId: null, amount: 10_000, sign: "kurang" }] },
+      result,
+      entries,
+    });
+    const wrongSign = assessExplanation({
+      model: { warmth: "", claims: [{ kind: "gap", entryId: null, amount: 30_000, sign: "lebih" }] },
+      result,
+      entries,
+    });
+    expect(wrongAmount.ok).toBe(false);
+    expect(wrongSign.ok).toBe(false);
+    if (!wrongAmount.ok) expect(wrongAmount.detail).toBe("gap_amount");
+    if (!wrongSign.ok) expect(wrongSign.detail).toBe("gap_sign");
   });
 });
