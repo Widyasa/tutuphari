@@ -111,8 +111,9 @@ async function run(viewport) {
 
   await openPay("Bu Qatest", 25000);
   await page.getByRole("button", { name: "Simpan pembayaran" }).click();
-  await page.getByRole("alert").waitFor();
-  const tooMuch = await page.getByRole("alert").innerText();
+  const tooMuchAlert = page.locator("p[role=alert]");
+  await tooMuchAlert.waitFor();
+  const tooMuch = await tooMuchAlert.innerText();
   store = await dump(page, `${tag}-too-much`);
   await page.screenshot({ path: `${out}/screenshots/${tag}-too-much.png` });
   note(`${tag} exceeds message`, tooMuch === "Pembayaran Rp25.000 melebihi sisa utang Rp20.000. Pembayaran tidak dicatat.", tooMuch);
@@ -135,8 +136,9 @@ async function run(viewport) {
 
   await openPay("Bu Qatest", 5000);
   await page.getByRole("button", { name: "Simpan pembayaran" }).click();
-  await page.getByRole("alert").waitFor();
-  const excessAlert = await page.getByRole("alert").innerText();
+  const excessNode = page.locator("p[role=alert]");
+  await excessNode.waitFor();
+  const excessAlert = await excessNode.innerText();
   store = await dump(page, `${tag}-excess`);
   await page.screenshot({ path: `${out}/screenshots/${tag}-excess.png` });
   note(`${tag} excess message`, excessAlert === "Bu Qatest tidak punya utang aktif. Pembayaran tidak dicatat.", excessAlert);
@@ -146,8 +148,9 @@ async function run(viewport) {
 
   await openPay("QA-TEST-R3b-TanpaUtang", 7000);
   await page.getByRole("button", { name: "Simpan pembayaran" }).click();
-  await page.getByRole("alert").waitFor();
-  const unmatched = await page.getByRole("alert").innerText();
+  const unmatchedNode = page.locator("p[role=alert]");
+  await unmatchedNode.waitFor();
+  const unmatched = await unmatchedNode.innerText();
   store = await dump(page, `${tag}-unmatched`);
   await page.screenshot({ path: `${out}/screenshots/${tag}-unmatched.png` });
   note(`${tag} unmatched message`, unmatched === "QA-TEST-R3b-TanpaUtang tidak punya utang aktif. Pembayaran tidak dicatat.", unmatched);
@@ -162,7 +165,7 @@ async function run(viewport) {
   await page.waitForTimeout(300);
   store = await dump(page, `${tag}-confirm-reject`);
   const drafted = store.active.entries.find((entry) => entry.sourceText === "bu qatest bayar kasbon 5rb tunai");
-  const notice = await page.locator("[aria-live]").innerText();
+  const notice = await page.locator("p[aria-live=polite]").innerText();
   await page.screenshot({ path: `${out}/screenshots/${tag}-confirm-reject.png` });
   note(`${tag} confirm stays draft`, drafted?.status === "draft" && drafted?.type === "kasbon_bayar", JSON.stringify(drafted));
   note(`${tag} confirm message`, notice.includes("tidak punya utang aktif"), notice);
