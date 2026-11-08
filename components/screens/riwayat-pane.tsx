@@ -21,7 +21,7 @@ export function RiwayatPane({
   const rows = [active, ...history.filter((day) => day.id !== active.id)];
   return (
     <div className="rise">
-      <h1 className="text-[1.5rem] font-bold tracking-[-0.035em] md:text-3xl">Riwayat</h1>
+      <h1 className="text-[1.5rem] font-bold tracking-[-0.02em] md:text-3xl">Riwayat</h1>
       <p className="mt-1 text-sm text-muted-foreground">Hari-hari sebelumnya</p>
       <ul className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {rows.map((day) => {

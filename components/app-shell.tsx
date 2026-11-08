@@ -47,11 +47,11 @@ export function AppShell({
       className="desk-shell pad-shell text-foreground pt-[env(safe-area-inset-top)] lg:grid lg:grid-cols-[232px_minmax(0,1fr)] lg:items-stretch lg:gap-0 lg:p-0"
       style={{ minHeight: "calc(100dvh - var(--kb))" }}
     >
-      <aside className="desk-nav sticky top-7 hidden h-fit flex-col rounded-2xl border border-border bg-card/90 p-3 shadow-[var(--surface-shadow)] backdrop-blur-sm lg:flex">
-        <p className="px-3.5 pt-2 pb-1 text-lg font-bold tracking-[-0.03em] text-primary">TutupHari</p>
+      <aside className="desk-nav sticky top-7 hidden h-fit flex-col border border-border bg-card p-3 lg:flex">
+        <p className="px-3.5 pt-2 pb-1 text-lg font-bold tracking-[-0.02em] text-primary">TutupHari</p>
         <p className="px-3.5 pb-4 text-xs text-muted-foreground">{warungName}</p>
         <SidebarNav dest={dest} onDest={onDest} />
-        <Button type="button" variant="outline" className="mt-4 w-full bg-background/70" onClick={onSettings}>
+        <Button type="button" variant="outline" className="mt-4 w-full" onClick={onSettings}>
           Pengaturan
         </Button>
       </aside>
@@ -71,7 +71,7 @@ export function AppShell({
         ) : (
           <header className="flex items-center justify-between px-4 py-3 md:px-6 lg:hidden">
             <div>
-              <p className="text-lg font-bold tracking-[-0.03em] text-primary">TutupHari</p>
+              <p className="text-lg font-bold tracking-[-0.02em] text-primary">TutupHari</p>
               <p className="text-xs text-muted-foreground">{warungName}</p>
             </div>
             <IconSettings onClick={onSettings} />
@@ -124,7 +124,7 @@ export function AppShell({
 
 export function FlowFooter({ children }: { children: ReactNode }) {
   return (
-    <footer className="sticky bottom-0 z-20 border-t border-border/80 bg-[color-mix(in_srgb,var(--background)_88%,white)] px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md md:px-6 lg:static lg:border-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
+    <footer className="sticky bottom-0 z-20 border-t border-border bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 lg:static lg:border-0 lg:bg-transparent lg:px-0">
       <div className="flex w-full flex-col gap-2 md:mx-auto md:max-w-xl lg:mx-0 lg:max-w-xl">{children}</div>
     </footer>
   );

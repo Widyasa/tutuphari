@@ -77,11 +77,11 @@ export function HasilPane({
           : `Lebih +${formatRupiah(result.selisih)}`;
   return (
     <div className="rise">
-      <h1 className="text-2xl font-bold tracking-[-0.03em] md:text-3xl">Hasil tutup hari</h1>
+      <h1 className="text-2xl font-bold tracking-[-0.02em] md:text-3xl">Hasil tutup hari</h1>
       <p className="mt-1 text-sm text-muted-foreground">Dihitung di perangkat</p>
-      <div className="surface-hero mt-4 p-5">
+      <div className="surface-hero mt-4 p-5 md:p-6">
         <p className="eyebrow">Uang laci seharusnya</p>
-        <p className="money mt-1 text-4xl font-bold md:text-5xl">{formatRupiah(result.expectedCash)}</p>
+        <p className="money mt-2 text-4xl font-bold md:text-5xl">{formatRupiah(result.expectedCash)}</p>
         <p className={cn("mt-3 text-lg font-bold", toneClass(result.verdict))}>{title}</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Hitung laci aktual {result.countedCash == null ? "belum diisi" : formatRupiah(result.countedCash)}

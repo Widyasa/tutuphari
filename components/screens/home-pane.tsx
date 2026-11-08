@@ -41,10 +41,11 @@ export function HomePane({
     <>
       <div className="rise lg:hidden">
         <p className="text-sm text-muted-foreground">{formatMediumDate(day.date)}</p>
-        <h1 className="mt-1 text-[1.5rem] font-bold tracking-[-0.035em] md:text-[1.75rem]">Hari ini</h1>
-        <div className="surface-hero mt-4 p-5">
+        <h1 className="mt-1 text-[1.5rem] font-bold tracking-[-0.02em] md:text-[1.75rem]">Hari ini</h1>
+        <div className="surface-hero mt-4 p-5 md:p-6">
           <p className="eyebrow">Uang laci seharusnya</p>
-          <p className="money mt-1 text-4xl font-semibold md:text-5xl" data-testid="home-expected">
+          {pending === 0 && <p className="ok-text mt-1 text-sm font-semibold">Siap dihitung</p>}
+          <p className="money mt-2 text-4xl font-semibold md:text-5xl" data-testid="home-expected">
             {formatRupiah(expected)}
           </p>
           <p className="mt-2 text-[13px] leading-snug text-muted-foreground">
@@ -90,13 +91,13 @@ export function HomePane({
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{CASH_DISCLAIMER}</p>
       </div>
       <div className="rise hidden lg:block">
-        <h1 className="text-[1.875rem] font-bold tracking-[-0.035em]">Hari ini</h1>
+        <h1 className="text-[1.875rem] font-bold tracking-[-0.025em]">Hari ini</h1>
         <p className="text-sm text-muted-foreground">
           {day.entries.length} catatan
           {pending > 0 ? ` · ${pending} perlu diperiksa sebelum tutup hari.` : " · siap dihitung."}
         </p>
         {pending > 0 && (
-          <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-[var(--short)]/30 bg-card px-5 py-4 text-[var(--short)] shadow-[var(--surface-shadow)]">
+          <div className="mt-4 flex items-center justify-between gap-4 border border-[var(--short)]/35 bg-card px-5 py-4 text-[var(--short)]">
             <p>
               <span className="font-bold">
                 Perlu diperiksa: {first?.item ?? "catatan"} {first?.amount != null ? formatRupiah(first.amount) : ""}

@@ -47,7 +47,7 @@ export function CatatPane({ draft, onDraft }: { draft: string; onDraft: (text: s
 
   return (
     <div className="rise">
-      <h1 className="text-2xl font-bold tracking-[-0.03em] md:text-3xl">Catat</h1>
+      <h1 className="text-2xl font-bold tracking-[-0.02em] md:text-3xl">Catat</h1>
       <p className="mt-1 text-sm text-muted-foreground">Tulis seperti chat WhatsApp — satu baris atau satu hari sekaligus.</p>
       <div className="surface mt-5 p-4 md:p-5">
         <Label htmlFor="draft-note" className="block text-sm font-semibold">
@@ -76,9 +76,8 @@ export function CatatPane({ draft, onDraft }: { draft: string; onDraft: (text: s
 
 export function LoadingPane() {
   return (
-    <div className="grid min-h-52 place-items-center text-center">
-      <div className="surface-hero max-w-sm px-6 py-8">
-        <div className="breathe mx-auto mb-4 size-3 rounded-full bg-primary" aria-hidden />
+    <div className="grid min-h-52 place-items-center text-center" aria-busy="true">
+      <div className="surface max-w-sm px-6 py-8">
         <p className="text-lg font-bold tracking-tight">Membaca catatan…</p>
         <p className="mt-2 text-sm text-muted-foreground">Angka baru dihitung setelah kamu konfirmasi.</p>
       </div>

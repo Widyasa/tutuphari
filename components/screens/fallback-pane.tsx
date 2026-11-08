@@ -17,7 +17,7 @@ export function FallbackPane({
 }) {
   return (
     <div className="rise">
-      <h1 className="text-2xl font-bold tracking-[-0.03em] md:text-3xl">Isi manual</h1>
+      <h1 className="text-2xl font-bold tracking-[-0.02em] md:text-3xl">Isi manual</h1>
       <p className="alert-surface mt-3 text-sm">AI tidak merespons. Isi jumlah dan cara bayar sendiri.</p>
       <div className="surface mt-4 p-4 md:p-5">
         <Label htmlFor="manual-amount" className="block text-sm font-semibold">

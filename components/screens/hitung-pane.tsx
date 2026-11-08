@@ -8,7 +8,7 @@ export function HitungPane({ counted, onCounted }: { counted: number | null; onC
   const [text, setText] = useState(counted == null ? "" : String(counted));
   return (
     <div className="rise">
-      <h1 className="text-2xl font-bold tracking-[-0.03em] md:text-3xl">Hitung laci</h1>
+      <h1 className="text-2xl font-bold tracking-[-0.02em] md:text-3xl">Hitung laci</h1>
       <p className="mt-2 text-sm text-muted-foreground">Hitung uang kertas dan koin yang ada di laci. QRIS tidak dijumlah ke sini.</p>
       <div className="surface-hero mt-5 p-5">
         <Label htmlFor="counted-cash" className="block text-sm font-semibold">

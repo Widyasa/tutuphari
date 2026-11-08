@@ -84,7 +84,7 @@ export function SidebarNav({ dest, onDest }: { dest: Dest; onDest: (dest: Dest) 
 export function BottomNav({ dest, onDest }: { dest: Dest; onDest: (dest: Dest) => void }) {
   return (
     <nav
-      className="grid grid-cols-3 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgb(12_31_22_/_4%)] backdrop-blur-md lg:hidden"
+      className="grid grid-cols-3 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
       aria-label="Bagian utama"
     >
       {DESTINATIONS.map((item) => (

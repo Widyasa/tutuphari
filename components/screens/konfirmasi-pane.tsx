@@ -253,7 +253,7 @@ export function KonfirmasiPane({
 }) {
   return (
     <div className="rise">
-      <h1 id="cek-heading" tabIndex={-1} className="text-2xl font-bold tracking-[-0.03em] outline-none md:text-3xl">
+      <h1 id="cek-heading" tabIndex={-1} className="text-2xl font-bold tracking-[-0.02em] outline-none md:text-3xl">
         Cek sebelum tutup
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">

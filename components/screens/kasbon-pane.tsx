@@ -41,11 +41,11 @@ export function KasbonPane({
 }) {
   return (
     <div className="rise">
-      <h1 className="text-2xl font-bold tracking-[-0.03em] md:text-3xl">Buku kasbon</h1>
+      <h1 className="text-2xl font-bold tracking-[-0.02em] md:text-3xl">Buku kasbon</h1>
       <p className="mt-1 text-sm text-muted-foreground">Saldo lintas hari{demo ? " · Data demo" : ""}</p>
-      <div className="surface-hero mt-4 p-5">
+      <div className="surface-hero mt-4 p-5 md:p-6">
         <p className="eyebrow">Total belum lunas</p>
-        <p className="money mt-1 text-4xl font-bold text-[var(--kasbon)] md:text-5xl">{formatRupiah(total)}</p>
+        <p className="money mt-2 text-4xl font-bold text-[var(--kasbon)] md:text-5xl">{formatRupiah(total)}</p>
       </div>
       {people.length === 0 && <p className="mt-4 text-sm text-muted-foreground">Belum ada kasbon yang belum lunas.</p>}
       <ul className="mt-3 grid gap-2 md:grid-cols-2">
